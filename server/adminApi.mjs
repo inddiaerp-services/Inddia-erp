@@ -771,15 +771,10 @@ const getCurrentDateInTimeZone = (timeZone) => {
 
 const syncGoogleCalendarFull = async (authHeader) => {
   const user = await requireAuthenticatedUser(authHeader);
-  const email = (user.email || "").toLowerCase();
-  const { data: profile, error: profileError } = await service
-    .from("users")
-    .select("id, role, email")
-    .or(`id.eq.${user.id},email.eq.${email}`)
-    .maybeSingle();
+  const profile = await findPublicUserProfile(user, "id, role, email");
 
-  if (profileError || !profile) {
-    throw new Error(profileError?.message ?? "User profile not found.");
+  if (!profile) {
+    throw new Error("User profile not found.");
   }
 
   const isAdmin = String(profile.role ?? "").toLowerCase() === "admin";
@@ -945,19 +940,47 @@ const requireAuthenticatedUser = async (authHeader) => {
   return user;
 };
 
+const findPublicUserProfile = async (user, selectClause = "id, role, email, school_id, name") => {
+  const authUserId = String(user?.id ?? "").trim();
+  const normalizedEmail = String(user?.email ?? "").trim().toLowerCase();
+
+  if (authUserId) {
+    const { data: byId, error: byIdError } = await service
+      .from("users")
+      .select(selectClause)
+      .eq("id", authUserId)
+      .maybeSingle();
+
+    if (byIdError) {
+      throw new Error(byIdError.message);
+    }
+
+    if (byId) {
+      return byId;
+    }
+  }
+
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const { data: byEmail, error: byEmailError } = await service
+    .from("users")
+    .select(selectClause)
+    .eq("email", normalizedEmail)
+    .limit(1);
+
+  if (byEmailError) {
+    throw new Error(byEmailError.message);
+  }
+
+  return byEmail?.[0] ?? null;
+};
+
 const getUserProfile = async (authHeader) => {
   const user = await requireAuthenticatedUser(authHeader);
   await syncAuthDirectoryToPublic();
-  const email = (user.email || "").toLowerCase();
-  const { data: profile, error } = await service
-    .from("users")
-    .select("id, role, email, school_id, name")
-    .or(`id.eq.${user.id},email.eq.${email}`)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(error.message);
-  }
+  const profile = await findPublicUserProfile(user);
 
   if (profile) {
     return { user, profile };
