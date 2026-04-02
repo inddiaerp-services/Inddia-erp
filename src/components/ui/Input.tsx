@@ -1,0 +1,95 @@
+import type { InputHTMLAttributes } from "react";
+import { forwardRef } from "react";
+import { cn } from "../../lib/utils";
+
+type InputProps = InputHTMLAttributes<HTMLInputElement> & {
+  label?: string;
+  error?: string;
+  labelClassName?: string;
+  errorClassName?: string;
+  variant?: "light" | "dark";
+};
+
+export const Input = forwardRef<HTMLInputElement, InputProps>(
+  (
+    {
+      className,
+      label,
+      error,
+      labelClassName,
+      errorClassName,
+      variant = "light",
+      ...props
+    },
+    ref,
+  ) => {
+    const isCalendarInput = props.type === "date" || props.type === "month";
+    const isSuperAdminArea =
+      typeof window !== "undefined" && window.location.pathname.startsWith("/super-admin");
+
+    return (
+      <label className="block space-y-2">
+        {label ? (
+          <span
+            className={cn(
+              "text-sm font-medium",
+              variant === "dark" ? "text-slate-200" : "text-slate-700",
+              labelClassName,
+            )}
+          >
+            {label}
+          </span>
+        ) : null}
+        <div className="relative">
+          <input
+            ref={ref}
+            className={cn(
+              isSuperAdminArea
+                ? "w-full min-h-12 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-200/70"
+                : "w-full min-h-12 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 shadow-[inset_0_1px_2px_rgba(15,23,42,0.02)] focus:border-blue-500 focus:ring-4 focus:ring-blue-100",
+              isCalendarInput && "erp-calendar-input pr-12",
+              variant === "dark"
+                ? "border-white/10 bg-slate-900/70 text-white placeholder:text-slate-500"
+                : "",
+              error && "border-rose-400/70 focus:border-rose-400 focus:ring-rose-500/20",
+              className,
+            )}
+            {...props}
+          />
+          {isCalendarInput ? (
+            <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-slate-400">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+              >
+                <rect x="3" y="5" width="18" height="16" rx="2" />
+                <path d="M16 3v4M8 3v4M3 10h18" />
+              </svg>
+            </span>
+          ) : null}
+        </div>
+        {error ? (
+          <p
+            className={cn(
+              "text-sm",
+              variant === "dark" ? "text-rose-300" : "text-rose-600",
+              errorClassName,
+            )}
+          >
+            {error}
+          </p>
+        ) : null}
+      </label>
+    );
+  },
+);
+
+Input.displayName = "Input";
+
+export default Input;
