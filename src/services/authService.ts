@@ -126,6 +126,16 @@ const isAuditLogUserForeignKeyError = (message: string) => {
   );
 };
 
+const isAuditLogSchoolForeignKeyError = (message: string) => {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("audit_logs_school_id_fkey") ||
+    (normalized.includes("audit_logs") &&
+      normalized.includes("foreign key") &&
+      normalized.includes("school_id"))
+  );
+};
+
 const withTimeout = async <T>(promise: Promise<T>, message: string, ms = 20000): Promise<T> =>
   Promise.race([
     promise,
@@ -575,7 +585,7 @@ export const changeCurrentUserPassword = async (currentPassword: string, nextPas
   });
 
   if (auditError) {
-    if (isAuditLogUserForeignKeyError(auditError.message)) {
+    if (isAuditLogUserForeignKeyError(auditError.message) || isAuditLogSchoolForeignKeyError(auditError.message)) {
       return;
     }
     throw new Error(auditError.message);

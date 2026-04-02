@@ -108,6 +108,16 @@ const isAuditLogUserForeignKeyError = (message) => {
   );
 };
 
+const isAuditLogSchoolForeignKeyError = (message) => {
+  const normalized = String(message ?? "").toLowerCase();
+  return (
+    normalized.includes("audit_logs_school_id_fkey") ||
+    (normalized.includes("audit_logs") &&
+      normalized.includes("foreign key") &&
+      normalized.includes("school_id"))
+  );
+};
+
 const isUsersEmailUniqueError = (message) => {
   const normalized = String(message ?? "").toLowerCase();
   return normalized.includes("users_email_key") || (normalized.includes("duplicate key value") && normalized.includes("email"));
@@ -1007,12 +1017,29 @@ const requireSuperAdmin = async (authHeader) => {
   return context;
 };
 
-const logSuperAdminAuditEvent = async (context, schoolId, action, module, recordId = null) => {
-  if (!schoolId) return;
+const resolveAuditSchoolId = async (schoolId) => {
+  const normalizedSchoolId = String(schoolId ?? "").trim();
+  if (!normalizedSchoolId) return null;
+
+  const { data, error } = await service
+    .from("schools")
+    .select("id")
+    .eq("id", normalizedSchoolId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data?.id ?? null;
+};
+
+const insertAuditLog = async ({ schoolId = null, userId = null, action, module, recordId = null }) => {
+  const safeSchoolId = await resolveAuditSchoolId(schoolId);
 
   const { error } = await service.from("audit_logs").insert({
-    school_id: schoolId,
-    user_id: context?.profile?.id ?? null,
+    school_id: safeSchoolId,
+    user_id: userId,
     action,
     module,
     record_id: recordId,
@@ -1022,8 +1049,35 @@ const logSuperAdminAuditEvent = async (context, schoolId, action, module, record
     if (isAuditLogUserForeignKeyError(error.message)) {
       return;
     }
+
+    if (safeSchoolId && isAuditLogSchoolForeignKeyError(error.message)) {
+      const retry = await service.from("audit_logs").insert({
+        school_id: null,
+        user_id: userId,
+        action,
+        module,
+        record_id: recordId,
+      });
+
+      if (!retry.error || isAuditLogUserForeignKeyError(retry.error.message)) {
+        return;
+      }
+
+      throw new Error(retry.error.message);
+    }
+
     throw new Error(error.message);
   }
+};
+
+const logSuperAdminAuditEvent = async (context, schoolId, action, module, recordId = null) => {
+  await insertAuditLog({
+    schoolId,
+    userId: context?.profile?.id ?? null,
+    action,
+    module,
+    recordId,
+  });
 };
 
 const normalizeStaffWorkspace = (role) => {
@@ -3464,12 +3518,12 @@ const updateSchoolBillingProfile = async (payload, authHeader) => {
     .limit(1)
     .maybeSingle();
 
-  await service.from("audit_logs").insert({
-    school_id: schoolId,
-    user_id: profile.id,
+  await insertAuditLog({
+    schoolId,
+    userId: profile.id,
     action: "UPDATE",
     module: "SCHOOL_BILLING_PROFILE",
-    record_id: schoolId,
+    recordId: schoolId,
   });
 
   return {
@@ -3547,12 +3601,12 @@ const createSchoolPaymentRequest = async (payload, authHeader) => {
     note: "Invoice raised from school admin payment submission.",
   });
 
-  await service.from("audit_logs").insert({
-    school_id: schoolId,
-    user_id: profile.id,
+  await insertAuditLog({
+    schoolId,
+    userId: profile.id,
     action: "CREATE",
     module: "PLATFORM_PAYMENT_REQUEST",
-    record_id: data.id,
+    recordId: data.id,
   });
 
   return mapPaymentRequestRecord(data);
@@ -3613,12 +3667,12 @@ const createPlanChangeRequest = async (payload, authHeader) => {
 
   if (error || !data) throw new Error(error?.message ?? "Unable to create plan change request.");
 
-  await service.from("audit_logs").insert({
-    school_id: schoolId,
-    user_id: profile.id,
+  await insertAuditLog({
+    schoolId,
+    userId: profile.id,
     action: "CREATE",
     module: "PLAN_CHANGE_REQUEST",
-    record_id: data.id,
+    recordId: data.id,
   });
 
   return mapPlanChangeRequestRecord(data);

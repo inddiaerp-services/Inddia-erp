@@ -521,6 +521,16 @@ const isAuditLogUserForeignKeyError = (message: string) => {
   );
 };
 
+const isAuditLogSchoolForeignKeyError = (message: string) => {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("audit_logs_school_id_fkey") ||
+    (normalized.includes("audit_logs") &&
+      normalized.includes("foreign key") &&
+      normalized.includes("school_id"))
+  );
+};
+
 const logAuditEvent = async (
   action: "CREATE" | "UPDATE" | "DELETE",
   module: string,
@@ -544,7 +554,7 @@ const logAuditEvent = async (
   });
 
   if (error) {
-    if (isAuditLogUserForeignKeyError(error.message)) {
+    if (isAuditLogUserForeignKeyError(error.message) || isAuditLogSchoolForeignKeyError(error.message)) {
       return;
     }
     throw new Error(error.message);
