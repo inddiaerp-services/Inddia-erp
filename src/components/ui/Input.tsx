@@ -2,6 +2,25 @@ import type { ChangeEvent, InputHTMLAttributes } from "react";
 import { forwardRef } from "react";
 import { cn } from "../../lib/utils";
 
+const formatDateForInput = (value: Date) => {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getDateThirtyMonthsAgo = () => {
+  const value = new Date();
+  value.setMonth(value.getMonth() - 30);
+  return formatDateForInput(value);
+};
+
+const getEarlierDate = (first?: string, second?: string) => {
+  if (!first) return second;
+  if (!second) return first;
+  return first < second ? first : second;
+};
+
 type InputProps = InputHTMLAttributes<HTMLInputElement> & {
   label?: string;
   error?: string;
@@ -31,6 +50,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
+    const isDateOfBirthInput =
+      props.type === "date" && (constraintSource.includes("date of birth") || constraintSource.includes("dob"));
     const digitLimit = constraintSource.includes("aadhaar") || constraintSource.includes("aadhar")
       ? 12
       : constraintSource.includes("mobile") || constraintSource.includes("phone")
@@ -38,14 +59,23 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         : undefined;
     const shouldConstrainDigits =
       digitLimit !== undefined && (!props.type || props.type === "text" || props.type === "tel");
+    const dateOfBirthMax = isDateOfBirthInput ? getEarlierDate(props.max, getDateThirtyMonthsAgo()) : props.max;
 
     const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-      if (!shouldConstrainDigits) {
+      if (!shouldConstrainDigits && !isDateOfBirthInput) {
         onChange?.(event);
         return;
       }
 
-      const sanitizedValue = event.target.value.replace(/\D/g, "").slice(0, digitLimit);
+      let sanitizedValue = event.target.value;
+
+      if (shouldConstrainDigits) {
+        sanitizedValue = sanitizedValue.replace(/\D/g, "").slice(0, digitLimit);
+      }
+
+      if (isDateOfBirthInput && dateOfBirthMax && sanitizedValue > dateOfBirthMax) {
+        sanitizedValue = dateOfBirthMax;
+      }
 
       if (sanitizedValue === event.target.value) {
         onChange?.(event);
@@ -89,6 +119,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             {...props}
             inputMode={shouldConstrainDigits ? "numeric" : props.inputMode}
             maxLength={shouldConstrainDigits ? Math.min(props.maxLength ?? digitLimit, digitLimit) : props.maxLength}
+            max={dateOfBirthMax}
             pattern={shouldConstrainDigits ? "\\d*" : props.pattern}
             onChange={handleChange}
           />
