@@ -78,6 +78,14 @@ const getMaxDateOfBirth = () => {
   return formatDateForInput(value);
 };
 
+const formatDateForMessage = (value: string) => {
+  if (!value) return "";
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+};
+
 type ModalState = {
   open: boolean;
   mode: "create" | "edit";
@@ -101,6 +109,10 @@ export const StudentsPage = () => {
   const [canCreateStudent, setCanCreateStudent] = useState(role === ROLES.ADMIN);
   const canManageStudentRecords = role === ROLES.ADMIN;
   const maxDateOfBirth = getMaxDateOfBirth();
+  const maxDateOfBirthLabel = formatDateForMessage(maxDateOfBirth);
+  const dateOfBirthMessage = form.dateOfBirth
+    ? `Selected: ${formatDateForMessage(form.dateOfBirth)}. You can select ${maxDateOfBirthLabel} or any earlier date only.`
+    : `You can select ${maxDateOfBirthLabel} or any earlier date only.`;
   const filteredStudents = students.filter((student) => {
     const haystack = `${student.name} ${student.schoolId ?? ""} ${student.className ?? ""} ${student.section ?? ""} ${student.fatherName ?? ""} ${student.motherName ?? ""}`.toLowerCase();
     const matchesSearch = !search.trim() || haystack.includes(search.trim().toLowerCase());
@@ -635,7 +647,16 @@ export const StudentsPage = () => {
             <p className="text-xs uppercase tracking-[0.22em] text-brand-600">Other Information</p>
             <h3 className="mt-2 text-lg font-semibold text-slate-900">Personal and Academic Background</h3>
             <div className="mt-4 grid gap-5 md:grid-cols-2">
-              <Input label="Date of Birth" type="date" value={form.dateOfBirth} max={maxDateOfBirth} onChange={(event) => handleChange("dateOfBirth", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
+              <Input
+                label="Date of Birth"
+                type="date"
+                value={form.dateOfBirth}
+                max={maxDateOfBirth}
+                error={dateOfBirthMessage}
+                onChange={(event) => handleChange("dateOfBirth", event.target.value)}
+                className="border-slate-200 bg-white text-slate-900"
+                errorClassName="text-amber-700"
+              />
               <Input label="Student Birth ID / NIC" value={form.birthId} onChange={(event) => handleChange("birthId", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Orphan Student</span>
