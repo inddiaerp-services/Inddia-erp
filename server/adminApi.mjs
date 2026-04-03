@@ -3324,6 +3324,8 @@ const deleteSchool = async (payload, context) => {
     throw new Error(schoolUsersError.message);
   }
 
+  await cleanupTable("audit_logs", "school_id", schoolId);
+
   const { data: deletedSchool, error: schoolDeleteError } = await service
     .from("schools")
     .delete()
@@ -3335,8 +3337,19 @@ const deleteSchool = async (payload, context) => {
     throw new Error(schoolDeleteError?.message ?? "Unable to delete school.");
   }
 
-  for (const user of schoolUsers ?? []) {
-    await cleanupUser(user.id);
+  const cleanupResults = await Promise.allSettled(
+    (schoolUsers ?? []).map((user) => cleanupUser(user.id)),
+  );
+
+  const failedCleanup = cleanupResults.filter((result) => result.status === "rejected");
+  if (failedCleanup.length > 0) {
+    const reasons = failedCleanup
+      .map((result) => (result.status === "rejected" ? result.reason : null))
+      .filter(Boolean)
+      .map((reason) => (reason instanceof Error ? reason.message : String(reason)));
+    throw new Error(
+      `School data was deleted, but ${failedCleanup.length} linked auth account(s) could not be removed: ${reasons.join("; ")}`,
+    );
   }
 
   return { ok: true };
