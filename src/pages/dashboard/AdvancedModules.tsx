@@ -7,6 +7,7 @@ import Modal from "../../components/ui/Modal";
 import Input from "../../components/ui/Input";
 import DataTable from "../../components/ui/DataTable";
 import AttendanceMonthGridView from "../../components/attendance/AttendanceMonthGrid";
+import AttendanceStatusToggle from "../../components/attendance/AttendanceStatusToggle";
 import { CrudDetailPage, CrudPage } from "./CrudPage";
 import { AdminPageHeader, DetailField, DetailSection } from "./adminPageUtils";
 import {
@@ -1372,15 +1373,11 @@ export const AttendancePage = () => {
                   <tr key={row.studentId} className={editedIds.has(row.studentId) ? "bg-brand-50/50" : "hover:bg-slate-50"}>
                     <td className="px-6 py-4 font-medium text-slate-900">{row.studentName}</td>
                     <td className="px-6 py-4">
-                      <select
+                      <AttendanceStatusToggle
                         value={row.status}
-                        onChange={(event) => handleStatusChange(row.studentId, event.target.value as "Present" | "Absent")}
+                        onChange={(value) => handleStatusChange(row.studentId, value)}
                         disabled={teacherAttendanceLocked}
-                        className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-200"
-                      >
-                        <option value="Present">Present</option>
-                        <option value="Absent">Absent</option>
-                      </select>
+                      />
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       {row.attendanceId ? (

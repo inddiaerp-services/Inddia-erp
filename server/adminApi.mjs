@@ -1376,6 +1376,109 @@ const saveTeacherAttendance = async (payload, authHeader) => {
   return { ok: true };
 };
 
+const normalizeOptionalTime = (value, label) => {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return null;
+  if (!/^\d{2}:\d{2}$/.test(normalized)) {
+    throw new Error(`${label} must use HH:MM format.`);
+  }
+  return normalized;
+};
+
+const saveStaffAttendance = async (payload, authHeader) => {
+  const { user, profile } = await getUserProfile(authHeader);
+  const tenantSchoolId = await ensureTenantSchoolExists({ user, profile });
+  const date = String(payload.date ?? "").trim();
+  const entries = Array.isArray(payload.entries) ? payload.entries : [];
+
+  if (!date) {
+    throw new Error("Attendance date is required.");
+  }
+
+  if (entries.length === 0) {
+    throw new Error("Add at least one staff attendance entry.");
+  }
+
+  const normalizedEntries = entries
+    .map((entry) => ({
+      staffId: String(entry.staffId ?? "").trim(),
+      status: String(entry.status ?? "").trim(),
+      checkInTime: normalizeOptionalTime(entry.checkInTime, "Check-in time"),
+      checkOutTime: normalizeOptionalTime(entry.checkOutTime, "Check-out time"),
+      notes: String(entry.notes ?? "").trim() || null,
+    }))
+    .filter((entry) => entry.staffId);
+
+  if (normalizedEntries.length === 0) {
+    throw new Error("Add at least one valid staff attendance entry.");
+  }
+
+  const invalidStatusEntry = normalizedEntries.find(
+    (entry) => !["Present", "Absent", "Late", "Half Day", "On Leave"].includes(entry.status),
+  );
+  if (invalidStatusEntry) {
+    throw new Error(`Invalid attendance status for staff ${invalidStatusEntry.staffId}.`);
+  }
+
+  const invalidTimeRangeEntry = normalizedEntries.find(
+    (entry) => entry.checkInTime && entry.checkOutTime && entry.checkInTime > entry.checkOutTime,
+  );
+  if (invalidTimeRangeEntry) {
+    throw new Error("Check-out time must be later than or equal to check-in time.");
+  }
+
+  const staffIds = Array.from(new Set(normalizedEntries.map((entry) => entry.staffId)));
+  const { data: staffRows, error: staffError } = await service
+    .from("staff")
+    .select("id")
+    .eq("school_id", tenantSchoolId)
+    .in("id", staffIds);
+
+  if (staffError) {
+    throw new Error(staffError.message);
+  }
+
+  const validStaffIds = new Set((staffRows ?? []).map((row) => row.id));
+  if (validStaffIds.size !== staffIds.length) {
+    throw new Error("One or more selected staff records do not belong to this school.");
+  }
+
+  const rowsToUpsert = normalizedEntries.map((entry) => ({
+    school_id: tenantSchoolId,
+    staff_id: entry.staffId,
+    attendance_date: date,
+    status: entry.status,
+    check_in_time: entry.checkInTime,
+    check_out_time: entry.checkOutTime,
+    notes: entry.notes,
+    marked_by: profile.id ?? user.id,
+    updated_at: new Date().toISOString(),
+  }));
+
+  const { error } = await service
+    .from("staff_attendance")
+    .upsert(rowsToUpsert, {
+      onConflict: "school_id,staff_id,attendance_date",
+    });
+
+  if (error) {
+    if (String(error.message).toLowerCase().includes("staff_attendance")) {
+      throw new Error("Staff attendance requires the latest database schema. Run the updated schema.sql in Supabase first.");
+    }
+    throw new Error(error.message);
+  }
+
+  await insertAuditLog({
+    schoolId: tenantSchoolId,
+    userId: profile.id ?? user.id,
+    action: "UPDATE",
+    module: "STAFF_ATTENDANCE",
+    recordId: null,
+  });
+
+  return { ok: true };
+};
+
 const createStaff = async (payload, authHeader) => {
   const { profile } = await getUserProfile(authHeader);
   const tenantSchoolId = String(profile.school_id ?? "").trim();
@@ -3969,6 +4072,7 @@ export const handleAdminApi = async (req, res) => {
       case "create_staff":
       case "update_staff":
       case "delete_staff":
+      case "save_staff_attendance":
         await requireAdminOrWorkspace(authHeader, ["hr"]);
         break;
       case "create_class":
@@ -4037,6 +4141,9 @@ export const handleAdminApi = async (req, res) => {
         return true;
       case "delete_staff":
         send(res, 200, { data: await deleteStaff(payload) });
+        return true;
+      case "save_staff_attendance":
+        send(res, 200, { data: await saveStaffAttendance(payload, authHeader) });
         return true;
       case "create_student_bundle":
         send(res, 200, { data: await createStudentBundle(payload, authHeader) });

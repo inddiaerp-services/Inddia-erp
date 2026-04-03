@@ -102,6 +102,13 @@ export const sidebarItems: SidebarItem[] = [
     roles: [ROLES.ADMIN],
   },
   {
+    icon: "SA",
+    label: "Staff Attendance",
+    path: "/dashboard/staff-attendance",
+    description: "Daily HR attendance marking and monthly review.",
+    roles: [ROLES.ADMIN],
+  },
+  {
     icon: "LV",
     label: "Leaves",
     path: "/dashboard/leaves",

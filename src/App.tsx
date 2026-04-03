@@ -20,6 +20,7 @@ import TimetableLandingPage, {
   MyTeachingTimetablePage,
 } from "./pages/dashboard/Timetable";
 import EmployeesPage from "./pages/dashboard/Employees";
+import StaffAttendancePage from "./pages/dashboard/StaffAttendance";
 import FeesPage from "./pages/dashboard/Fees";
 import VehiclesPage from "./pages/dashboard/Vehicles";
 import ApplicantsPage from "./pages/dashboard/Applicants";
@@ -288,6 +289,7 @@ function App() {
           <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.HR]} />}>
             <Route path="hr" element={<HrDashboardPage />} />
             <Route path="employees" element={<EmployeesPage />} />
+            <Route path="staff-attendance" element={<StaffAttendancePage />} />
             <Route path="employees/:id" element={<EmployeeDetailPage />} />
           </Route>
 

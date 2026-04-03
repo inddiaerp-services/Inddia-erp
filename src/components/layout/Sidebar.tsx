@@ -32,7 +32,7 @@ const sectionDefinitions = [
   {
     title: "Operations",
     match: (path: string) =>
-      ["/dashboard/applicants", "/dashboard/employees", "/dashboard/leaves", "/dashboard/fees", "/dashboard/salary", "/dashboard/vehicles", "/dashboard/routes", "/dashboard/notifications"].includes(path),
+      ["/dashboard/applicants", "/dashboard/employees", "/dashboard/staff-attendance", "/dashboard/leaves", "/dashboard/fees", "/dashboard/salary", "/dashboard/vehicles", "/dashboard/routes", "/dashboard/notifications"].includes(path),
   },
   {
     title: "Administration",
@@ -122,6 +122,7 @@ export const Sidebar = ({ open, onClose }: SidebarProps) => {
         { icon: "AN", label: "Analytics", path: "/dashboard/analytics", description: "Monitor workforce and school operations.", roles: [ROLES.STAFF] },
         { icon: "HR", label: "HR Dashboard", path: "/dashboard/hr", description: "Employee, leave, and people operations.", roles: [ROLES.STAFF] },
         { icon: "EM", label: "Employees", path: "/dashboard/employees", description: "Manage staff and employee records.", roles: [ROLES.STAFF] },
+        { icon: "SA", label: "Staff Attendance", path: "/dashboard/staff-attendance", description: "Mark daily attendance and review monthly staff records.", roles: [ROLES.STAFF] },
         { icon: "LV", label: "Leaves", path: "/dashboard/leaves", description: "Approve and track leave requests.", roles: [ROLES.STAFF] },
       ];
     }

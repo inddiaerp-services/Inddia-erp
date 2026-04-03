@@ -47,7 +47,10 @@ import type {
   RouteRecord,
   SalaryFormValues,
   SalaryRecord,
+  StaffAttendanceEntryInput,
+  StaffAttendanceRecord,
   StaffFormValues,
+  StaffAttendanceStatus,
   StaffRecord,
   StudentFormValues,
   StudentRecord,
@@ -111,6 +114,19 @@ type StaffRow = {
   is_class_coordinator: boolean | null;
   assigned_class: string | null;
   assigned_section: string | null;
+};
+
+type StaffAttendanceRow = {
+  id: string;
+  staff_id: string;
+  attendance_date: string;
+  status: StaffAttendanceStatus;
+  check_in_time: string | null;
+  check_out_time: string | null;
+  notes: string | null;
+  marked_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 type ParentRow = {
@@ -3851,6 +3867,114 @@ export const updateEmployee = async (employeeId: string, values: EmployeeFormVal
 
 export const deleteEmployee = async (employeeId: string) => {
   await deleteStaff(employeeId);
+};
+
+export const staffAttendanceStatusOptions: StaffAttendanceStatus[] = [
+  "Present",
+  "Late",
+  "Half Day",
+  "Absent",
+  "On Leave",
+];
+
+const mapStaffAttendanceRecord = (
+  row: StaffAttendanceRow,
+  staffMap: Map<string, StaffRecord>,
+  usersMap: Map<string, UsersRow>,
+): StaffAttendanceRecord => {
+  const staff = staffMap.get(row.staff_id);
+  const markedByUser = row.marked_by ? usersMap.get(row.marked_by) : null;
+
+  return {
+    id: row.id,
+    staffId: row.staff_id,
+    staffName: staff?.name ?? "Unknown staff",
+    role: staff?.role ?? "Staff",
+    attendanceDate: row.attendance_date,
+    status: row.status,
+    checkInTime: row.check_in_time ? row.check_in_time.slice(0, 5) : null,
+    checkOutTime: row.check_out_time ? row.check_out_time.slice(0, 5) : null,
+    notes: row.notes,
+    markedByUserId: row.marked_by,
+    markedByName: markedByUser?.name ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
+export const listStaffAttendance = async (filters?: {
+  date?: string;
+  month?: string;
+  staffId?: string;
+  status?: StaffAttendanceStatus | "";
+}): Promise<StaffAttendanceRecord[]> => {
+  const client = requireSupabase();
+  let query = client
+    .from("staff_attendance")
+    .select("id, staff_id, attendance_date, status, check_in_time, check_out_time, notes, marked_by, created_at, updated_at")
+    .order("attendance_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (filters?.date) {
+    query = query.eq("attendance_date", filters.date);
+  }
+
+  if (filters?.month) {
+    const monthDates = getMonthDates(filters.month);
+    if (monthDates.length > 0) {
+      query = query.gte("attendance_date", monthDates[0]).lte("attendance_date", monthDates[monthDates.length - 1]);
+    }
+  }
+
+  if (filters?.staffId) {
+    query = query.eq("staff_id", filters.staffId);
+  }
+
+  if (filters?.status) {
+    query = query.eq("status", filters.status);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    if (String(error.message).toLowerCase().includes("staff_attendance")) {
+      throw new Error("Staff attendance requires the latest database schema. Run the updated schema.sql in Supabase first.");
+    }
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []) as StaffAttendanceRow[];
+  const staff = await listStaff();
+  const staffMap = new Map(staff.map((item) => [item.id, item] as const));
+  const markedByIds = rows.map((item) => item.marked_by).filter((value): value is string => Boolean(value));
+  const usersMap = await getUsersMap(markedByIds);
+
+  return rows.map((row) => mapStaffAttendanceRecord(row, staffMap, usersMap));
+};
+
+export const saveStaffAttendance = async (date: string, entries: StaffAttendanceEntryInput[]) => {
+  if (!date) {
+    throw new Error("Attendance date is required.");
+  }
+
+  const normalizedEntries = entries
+    .map((entry) => ({
+      staffId: entry.staffId,
+      status: entry.status,
+      checkInTime: entry.checkInTime.trim(),
+      checkOutTime: entry.checkOutTime.trim(),
+      notes: entry.notes.trim(),
+    }))
+    .filter((entry) => entry.staffId);
+
+  if (normalizedEntries.length === 0) {
+    throw new Error("Add at least one staff attendance entry.");
+  }
+
+  await invokeServerAction<{ ok: true }>("save_staff_attendance", {
+    date,
+    entries: normalizedEntries,
+  });
 };
 
 export const listLeaves = async (): Promise<LeaveRecord[]> => {

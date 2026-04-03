@@ -8,10 +8,12 @@ import {
   listEmployees,
   listFees,
   listLeaves,
+  listStaffAttendance,
   listSalary,
   listTransportRoutes,
   listVehicles,
 } from "../../services/adminService";
+import { getIndiaTodayIso } from "../../utils/date";
 
 type Metric = {
   label: string;
@@ -108,12 +110,13 @@ export const HrDashboardPage = () => {
 
   useEffect(() => {
     void (async () => {
-      const [employees, leaves] = await Promise.all([listEmployees(), listLeaves()]);
+      const today = getIndiaTodayIso();
+      const [employees, leaves, attendance] = await Promise.all([listEmployees(), listLeaves(), listStaffAttendance({ date: today })]);
       setMetrics([
         { label: "Total Employees", value: String(employees.length), detail: "Staff records synced from admin setup." },
+        { label: "Marked Today", value: String(attendance.length), detail: `Staff attendance saved for ${today}.` },
         { label: "Pending Leaves", value: String(leaves.filter((item) => item.status === "Pending_HR").length), detail: "Requests waiting for HR action." },
         { label: "Approved Leaves", value: String(leaves.filter((item) => item.status === "Approved").length), detail: "Approved leave requests on record." },
-        { label: "Class Coordinators", value: String(employees.filter((employee) => employee.isClassCoordinator).length), detail: "Teachers currently assigned as coordinators." },
       ]);
     })();
   }, []);
@@ -127,6 +130,7 @@ export const HrDashboardPage = () => {
       metrics={metrics}
       links={[
         { title: "Employees", body: "View and manage employee records, subjects, and coordinator flags.", path: "/dashboard/employees" },
+        { title: "Staff Attendance", body: "Mark daily staff attendance, late arrivals, and leave-linked presence from HR.", path: "/dashboard/staff-attendance" },
         { title: "Leaves", body: "Review leave requests, then approve or reject them from a live queue.", path: "/dashboard/leaves" },
       ]}
     />

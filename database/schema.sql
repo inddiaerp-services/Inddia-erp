@@ -421,6 +421,25 @@ create table public.salary (
   created_at timestamp default now()
 );
 
+create table public.staff_attendance (
+  id uuid primary key default gen_random_uuid(),
+  school_id uuid not null references public.schools(id) on delete cascade,
+  staff_id uuid not null references public.staff(id) on delete cascade,
+  attendance_date date not null,
+  status text not null check (status in ('Present', 'Absent', 'Late', 'Half Day', 'On Leave')),
+  check_in_time time,
+  check_out_time time,
+  notes text,
+  marked_by uuid references public.users(id) on delete set null,
+  created_at timestamp default now(),
+  updated_at timestamp default now(),
+  constraint staff_attendance_time_order_check check (
+    check_in_time is null
+    or check_out_time is null
+    or check_in_time <= check_out_time
+  )
+);
+
 create table public.vehicles (
   id uuid primary key default gen_random_uuid(),
   school_id uuid not null references public.schools(id) on delete cascade,
@@ -474,6 +493,7 @@ create unique index idx_results_unique_student_subject_exam on public.results(st
 create unique index idx_exam_subjects_unique on public.exam_subjects(exam_id, subject_id);
 create unique index idx_marks_unique_student_subject_exam on public.marks(student_id, subject_id, exam_id);
 create unique index idx_notifications_dedupe on public.notifications(dedupe_key) where dedupe_key is not null;
+create unique index idx_staff_attendance_unique_staff_date on public.staff_attendance(school_id, staff_id, attendance_date);
 
 create index idx_users_role on public.users(role);
 create index idx_users_school_id on public.users(school_id);
@@ -492,6 +512,8 @@ create index idx_exams_school_class_section_date on public.exams(school_id, clas
 create index idx_marks_exam_student on public.marks(exam_id, student_id);
 create index idx_leaves_staff_status on public.leaves(staff_id, status);
 create index idx_salary_staff_month on public.salary(staff_id, month);
+create index idx_staff_attendance_school_date on public.staff_attendance(school_id, attendance_date desc);
+create index idx_staff_attendance_staff_date on public.staff_attendance(staff_id, attendance_date desc);
 create index idx_routes_vehicle_id on public.routes(vehicle_id);
 create index idx_applicants_status_class on public.applicants(school_id, status, class);
 create index idx_notifications_receiver_read on public.notifications(receiver_id, is_read, created_at desc);
@@ -950,6 +972,16 @@ begin
 end;
 $$;
 
+create or replace function public.set_updated_at_timestamp()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
 create or replace function public.analytics_overview()
 returns table (
   total_students bigint,
@@ -1135,6 +1167,14 @@ drop trigger if exists salary_set_school_id on public.salary;
 create trigger salary_set_school_id before insert on public.salary
 for each row execute function public.set_school_id_from_jwt();
 
+drop trigger if exists staff_attendance_set_school_id on public.staff_attendance;
+create trigger staff_attendance_set_school_id before insert on public.staff_attendance
+for each row execute function public.set_school_id_from_jwt();
+
+drop trigger if exists staff_attendance_set_updated_at on public.staff_attendance;
+create trigger staff_attendance_set_updated_at before update on public.staff_attendance
+for each row execute function public.set_updated_at_timestamp();
+
 drop trigger if exists vehicles_set_school_id on public.vehicles;
 create trigger vehicles_set_school_id before insert on public.vehicles
 for each row execute function public.set_school_id_from_jwt();
@@ -1173,6 +1213,7 @@ alter table public.leaves enable row level security;
 alter table public.notifications enable row level security;
 alter table public.timetable_adjustments enable row level security;
 alter table public.salary enable row level security;
+alter table public.staff_attendance enable row level security;
 alter table public.vehicles enable row level security;
 alter table public.routes enable row level security;
 alter table public.applicants enable row level security;
@@ -1328,6 +1369,12 @@ with check (public.is_super_admin() or school_id::text = public.current_school_i
 
 create policy "salary tenant isolation"
 on public.salary
+for all
+using (public.is_super_admin() or school_id::text = public.current_school_id()::text)
+with check (public.is_super_admin() or school_id::text = public.current_school_id()::text);
+
+create policy "staff attendance tenant isolation"
+on public.staff_attendance
 for all
 using (public.is_super_admin() or school_id::text = public.current_school_id()::text)
 with check (public.is_super_admin() or school_id::text = public.current_school_id()::text);

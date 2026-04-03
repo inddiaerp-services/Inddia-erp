@@ -532,6 +532,32 @@ export type EmployeeFormValues = {
   photoUrl: string;
 };
 
+export type StaffAttendanceStatus = "Present" | "Absent" | "Late" | "Half Day" | "On Leave";
+
+export type StaffAttendanceRecord = {
+  id: string;
+  staffId: string;
+  staffName: string;
+  role: string;
+  attendanceDate: string;
+  status: StaffAttendanceStatus;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  notes: string | null;
+  markedByUserId: string | null;
+  markedByName: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type StaffAttendanceEntryInput = {
+  staffId: string;
+  status: StaffAttendanceStatus;
+  checkInTime: string;
+  checkOutTime: string;
+  notes: string;
+};
+
 export type LeaveRecord = {
   id: string;
   staffId: string | null;
