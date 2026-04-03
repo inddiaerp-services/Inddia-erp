@@ -163,6 +163,19 @@ export type StudentFormValues = {
   motherIncome: string;
 };
 
+export type BulkImportRowResult = {
+  rowNumber: number;
+  identifier: string;
+  success: boolean;
+  message: string;
+};
+
+export type BulkImportResult = {
+  created: number;
+  failed: number;
+  results: BulkImportRowResult[];
+};
+
 export type TimetableDay = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
 
 export type TimetableSlotRecord = {

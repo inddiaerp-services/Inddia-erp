@@ -10,6 +10,7 @@ import type {
   ApplicantFormValues,
   ApplicantApprovalValues,
   ApplicantRecord,
+  BulkImportResult,
   AttendanceFormValues,
   AttendanceMonthCell,
   AttendanceMonthGrid,
@@ -1462,6 +1463,12 @@ export const createStaff = async (values: StaffFormValues) => {
   return staff;
 };
 
+export const bulkImportStaff = async (rows: Record<string, unknown>[]): Promise<BulkImportResult> => {
+  const result = await invokeAdminAction<BulkImportResult>("bulk_import_staff", { rows });
+  invalidateSchoolScopedCache(["staff", "classes"]);
+  return result;
+};
+
 export const updateStaff = async (staffId: string, userId: string, values: StaffFormValues) => {
   const staff = await invokeAdminAction<StaffRecord>("update_staff", { id: staffId, userId, ...values });
   invalidateSchoolScopedCache(["staff", "classes"]);
@@ -1601,6 +1608,22 @@ export const createStudent = async (values: StudentFormValues) => {
   invalidateSchoolScopedCache(["students", "classes"]);
   await logAuditEvent("CREATE", "STUDENT", student.id);
   return student;
+};
+
+export const bulkImportStudents = async (rows: Record<string, unknown>[]): Promise<BulkImportResult> => {
+  const { role, user } = authStore.getState();
+  const staffWorkspace =
+    role === ROLES.STAFF && user?.id
+      ? normalizeStaffWorkspace((await getStaffByUserId(user.id))?.role)
+      : null;
+
+  if (role !== ROLES.ADMIN && !(role === ROLES.STAFF && staffWorkspace === STAFF_WORKSPACES.ADMISSION)) {
+    throw new Error("Only admin and admission workspace staff can add students.");
+  }
+
+  const result = await invokeAdminAction<BulkImportResult>("bulk_import_students", { rows });
+  invalidateSchoolScopedCache(["students", "classes"]);
+  return result;
 };
 
 export const updateStudent = async (

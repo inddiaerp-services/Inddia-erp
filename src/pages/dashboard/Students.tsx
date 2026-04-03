@@ -8,6 +8,7 @@ import Modal from "../../components/ui/Modal";
 import ActionIconButton from "../../components/ui/ActionIconButton";
 import { AdminPageHeader } from "./adminPageUtils";
 import {
+  bulkImportStudents,
   createStudent,
   deleteStudent,
   getStaffByUserId,
@@ -18,7 +19,7 @@ import {
 import { authStore } from "../../store/authStore";
 import { ROLES } from "../../config/roles";
 import { normalizeStaffWorkspace, STAFF_WORKSPACES } from "../../config/staffWorkspaces";
-import type { ClassRecord, StudentFormValues, StudentRecord } from "../../types/admin";
+import type { BulkImportResult, ClassRecord, StudentFormValues, StudentRecord } from "../../types/admin";
 import { prepareProfileImage } from "../../utils/profileImage";
 
 const emptyForm: StudentFormValues = {
@@ -101,6 +102,8 @@ export const StudentsPage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [processingPhoto, setProcessingPhoto] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
   const [search, setSearch] = useState("");
@@ -237,6 +240,72 @@ export const StudentsPage = () => {
       active = false;
     };
   }, [role, user?.id]);
+
+  const handleDownloadTemplate = async () => {
+    const { utils, writeFile } = await import("xlsx");
+    const workbook = utils.book_new();
+    const worksheet = utils.json_to_sheet([
+      {
+        studentName: "Rahul Kumar",
+        schoolId: "STU-1001",
+        className: "10",
+        section: "A",
+        admissionDate: "2026-04-01",
+        discountFee: "0",
+        studentPassword: "Student@123",
+        dateOfBirth: "2012-01-15",
+        gender: "Male",
+        region: "Urban",
+        bloodGroup: "O+",
+        address: "Main Street",
+        fatherName: "Raj Kumar",
+        fatherMobileNumber: "9876543210",
+        fatherEmail: "raj.kumar@example.com",
+        fatherPassword: "Parent@123",
+        motherName: "Sita Kumari",
+        motherMobileNumber: "9876500000",
+      },
+    ]);
+    utils.book_append_sheet(workbook, worksheet, "Student Import");
+    writeFile(workbook, "student-import-template.xlsx");
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    setImporting(true);
+    setImportResult(null);
+
+    try {
+      const { read, utils } = await import("xlsx");
+      const workbook = read(await file.arrayBuffer(), { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+
+      if (!firstSheetName) {
+        throw new Error("The selected Excel file does not contain any sheet.");
+      }
+
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rows = utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "" });
+
+      if (rows.length === 0) {
+        throw new Error("The selected Excel sheet is empty.");
+      }
+
+      const result = await bulkImportStudents(rows);
+      setImportResult(result);
+      await loadStudents();
+      await loadClasses();
+      setError("");
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Failed to import students Excel.");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const closeModal = () => {
     setModal({ open: false, mode: "create", student: null });
@@ -408,6 +477,57 @@ export const StudentsPage = () => {
       {error ? (
         <Card className="border-rose-200 bg-rose-50 shadow-sm">
           <p className="text-sm text-rose-700">{error}</p>
+        </Card>
+      ) : null}
+
+      {canCreateStudent ? (
+        <Card className="border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Bulk Student Import</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Upload an Excel sheet to create students, parent records, and both login accounts in one import.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button type="button" variant="outline" onClick={() => void handleDownloadTemplate()}>
+                Download Template
+              </Button>
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-[0_8px_20px_rgba(15,23,42,0.04)] transition hover:bg-slate-50">
+                {importing ? "Importing..." : "Upload Student Excel"}
+                <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(event) => void handleImportFile(event)} disabled={importing} />
+              </label>
+            </div>
+          </div>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+            Required columns: `studentName`, `className`, `section`, `studentPassword`, `fatherName`, `fatherMobileNumber`, `fatherEmail`, `fatherPassword`.
+            Optional columns include `schoolId`, `admissionDate`, `gender`, `address`, `motherName`, and more.
+          </div>
+        </Card>
+      ) : null}
+
+      {importResult ? (
+        <Card className="border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+              Created: {importResult.created}
+            </div>
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+              Failed: {importResult.failed}
+            </div>
+          </div>
+          <div className="mt-4 max-h-80 space-y-2 overflow-y-auto">
+            {importResult.results.map((item) => (
+              <div
+                key={`${item.rowNumber}-${item.identifier}`}
+                className={`rounded-2xl border px-4 py-3 text-sm ${
+                  item.success ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"
+                }`}
+              >
+                Row {item.rowNumber} • {item.identifier} • {item.message}
+              </div>
+            ))}
+          </div>
         </Card>
       ) : null}
 

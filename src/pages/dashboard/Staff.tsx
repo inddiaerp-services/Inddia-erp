@@ -7,6 +7,7 @@ import Modal from "../../components/ui/Modal";
 import DataTable from "../../components/ui/DataTable";
 import { AdminPageHeader, CompactMetricCard } from "./adminPageUtils";
 import {
+  bulkImportStaff,
   createStaff,
   deleteStaff,
   getSelectableSubjects,
@@ -14,7 +15,7 @@ import {
   staffRoleOptions,
   updateStaff,
 } from "../../services/adminService";
-import type { StaffFormValues, StaffRecord, SubjectRecord } from "../../types/admin";
+import type { BulkImportResult, StaffFormValues, StaffRecord, SubjectRecord } from "../../types/admin";
 import { prepareProfileImage } from "../../utils/profileImage";
 
 const emptyForm: StaffFormValues = {
@@ -70,6 +71,8 @@ export const StaffPage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [processingPhoto, setProcessingPhoto] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
   const [search, setSearch] = useState("");
@@ -212,6 +215,62 @@ export const StaffPage = () => {
     }
   };
 
+  const handleDownloadTemplate = async () => {
+    const { utils, writeFile } = await import("xlsx");
+    const workbook = utils.book_new();
+    const worksheet = utils.json_to_sheet([
+      {
+        name: "Asha Teacher",
+        email: "asha.teacher@school.com",
+        mobileNumber: "9876543210",
+        password: "Staff@123",
+        role: "Teacher",
+        dateOfJoining: "2026-04-01",
+        monthlySalary: "25000",
+        subjectName: "Mathematics",
+        photoUrl: "",
+      },
+    ]);
+    utils.book_append_sheet(workbook, worksheet, "Staff Import");
+    writeFile(workbook, "staff-import-template.xlsx");
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    setImporting(true);
+    setImportResult(null);
+
+    try {
+      const { read, utils } = await import("xlsx");
+      const workbook = read(await file.arrayBuffer(), { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+
+      if (!firstSheetName) {
+        throw new Error("The selected Excel file does not contain any sheet.");
+      }
+
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rows = utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "" });
+
+      if (rows.length === 0) {
+        throw new Error("The selected Excel sheet is empty.");
+      }
+
+      const result = await bulkImportStaff(rows);
+      setImportResult(result);
+      await loadData();
+      setError("");
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Failed to import staff Excel.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
@@ -223,6 +282,55 @@ export const StaffPage = () => {
       {error ? (
         <Card className="border-rose-200 bg-rose-50 shadow-sm">
           <p className="text-sm text-rose-700">{error}</p>
+        </Card>
+      ) : null}
+
+      <Card className="border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Bulk Staff Import</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Upload an Excel sheet to create staff records and login accounts in one go. Use readable columns like `subjectName` and `role`.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button type="button" variant="outline" onClick={() => void handleDownloadTemplate()}>
+              Download Template
+            </Button>
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-[0_8px_20px_rgba(15,23,42,0.04)] transition hover:bg-slate-50">
+              {importing ? "Importing..." : "Upload Staff Excel"}
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(event) => void handleImportFile(event)} disabled={importing} />
+            </label>
+          </div>
+        </div>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+          Required columns: `name`, `email`, `mobileNumber`, `password`, `role`, `dateOfJoining`, `monthlySalary`.
+          Optional columns: `subjectName`, `subjectId`, `photoUrl`.
+        </div>
+      </Card>
+
+      {importResult ? (
+        <Card className="border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+              Created: {importResult.created}
+            </div>
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+              Failed: {importResult.failed}
+            </div>
+          </div>
+          <div className="mt-4 max-h-80 space-y-2 overflow-y-auto">
+            {importResult.results.map((item) => (
+              <div
+                key={`${item.rowNumber}-${item.identifier}`}
+                className={`rounded-2xl border px-4 py-3 text-sm ${
+                  item.success ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"
+                }`}
+              >
+                Row {item.rowNumber} • {item.identifier} • {item.message}
+              </div>
+            ))}
+          </div>
         </Card>
       ) : null}
 

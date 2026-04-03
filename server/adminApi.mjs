@@ -98,6 +98,13 @@ const cleanupTable = async (table, column, value) => {
   }
 };
 
+const toImportText = (value) => String(value ?? "").trim();
+
+const toImportBoolean = (value) => {
+  const normalized = toImportText(value).toLowerCase();
+  return ["true", "yes", "y", "1"].includes(normalized);
+};
+
 const isAuditLogUserForeignKeyError = (message) => {
   const normalized = String(message ?? "").toLowerCase();
   return (
@@ -1662,6 +1669,110 @@ const createStaff = async (payload, authHeader) => {
   }
 };
 
+const staffImportRoleMap = new Map(
+  ["Teacher", "HR", "Accounts", "Transport", "Admission", "Non-Teaching Staff"].map((role) => [
+    role.toLowerCase(),
+    role,
+  ]),
+);
+
+const normalizeStaffImportRole = (value) => {
+  const normalized = toImportText(value).toLowerCase();
+  if (!normalized) return "Teacher";
+  if (staffImportRoleMap.has(normalized)) {
+    return staffImportRoleMap.get(normalized);
+  }
+  if (normalized.includes("non") && normalized.includes("teach")) {
+    return "Non-Teaching Staff";
+  }
+  throw new Error(`Unsupported staff role "${toImportText(value)}".`);
+};
+
+const bulkImportStaff = async (payload, authHeader) => {
+  const { profile } = await getUserProfile(authHeader);
+  const tenantSchoolId = String(profile.school_id ?? "").trim();
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+
+  if (!tenantSchoolId) {
+    throw new Error("School context is missing for this staff import request.");
+  }
+
+  if (rows.length === 0) {
+    throw new Error("Add at least one staff row to import.");
+  }
+
+  const { data: subjectRows, error: subjectError } = await service
+    .from("subjects")
+    .select("id, name")
+    .eq("school_id", tenantSchoolId);
+
+  if (subjectError) {
+    throw new Error(subjectError.message);
+  }
+
+  const subjectMap = new Map(
+    (subjectRows ?? []).map((row) => [String(row.name ?? "").trim().toLowerCase(), row.id]),
+  );
+
+  const results = [];
+  let created = 0;
+  let failed = 0;
+
+  for (const [index, rawRow] of rows.entries()) {
+    const row = rawRow && typeof rawRow === "object" ? rawRow : {};
+    const name = toImportText(row.name);
+    const email = toImportText(row.email).toLowerCase();
+    const identifier = email || name || `Row ${index + 2}`;
+
+    try {
+      const role = normalizeStaffImportRole(row.role);
+      const subjectName = toImportText(row.subjectName || row.subject);
+      const subjectIdFromSheet = toImportText(row.subjectId);
+      const resolvedSubjectId = subjectIdFromSheet || (subjectName ? subjectMap.get(subjectName.toLowerCase()) ?? "" : "");
+
+      if (subjectName && !resolvedSubjectId) {
+        throw new Error(`Subject "${subjectName}" was not found in this school.`);
+      }
+
+      const createdStaff = await createStaff(
+        {
+          name,
+          email,
+          mobileNumber: toImportText(row.mobileNumber || row.phone),
+          photoUrl: toImportText(row.photoUrl),
+          password: toImportText(row.password),
+          role,
+          dateOfJoining: toImportText(row.dateOfJoining),
+          monthlySalary: toImportText(row.monthlySalary),
+          subjectId: role === "Teacher" ? resolvedSubjectId : "",
+          assignedClass: "",
+          assignedSection: "",
+          isClassCoordinator: false,
+        },
+        authHeader,
+      );
+
+      created += 1;
+      results.push({
+        rowNumber: index + 2,
+        identifier,
+        success: true,
+        message: `Created staff account for ${createdStaff.name}.`,
+      });
+    } catch (error) {
+      failed += 1;
+      results.push({
+        rowNumber: index + 2,
+        identifier,
+        success: false,
+        message: error instanceof Error ? error.message : "Staff import failed.",
+      });
+    }
+  }
+
+  return { created, failed, results };
+};
+
 const updateStaff = async (payload, authHeader) => {
   const { profile } = await getUserProfile(authHeader);
   const tenantSchoolId = String(profile.school_id ?? "").trim();
@@ -2130,6 +2241,88 @@ const createStudentBundle = async (payload, authHeader) => {
     await cleanupUser(parentUserId);
     throw error;
   }
+};
+
+const bulkImportStudents = async (payload, authHeader) => {
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+
+  if (rows.length === 0) {
+    throw new Error("Add at least one student row to import.");
+  }
+
+  const results = [];
+  let created = 0;
+  let failed = 0;
+
+  for (const [index, rawRow] of rows.entries()) {
+    const row = rawRow && typeof rawRow === "object" ? rawRow : {};
+    const studentName = toImportText(row.studentName || row.name);
+    const studentCode = toImportText(row.schoolId || row.studentCode);
+    const identifier = studentCode || studentName || `Row ${index + 2}`;
+
+    try {
+      const student = await createStudentBundle(
+        {
+          studentName,
+          photoUrl: toImportText(row.photoUrl),
+          schoolId: studentCode,
+          className: toImportText(row.className || row.class),
+          section: toImportText(row.section),
+          admissionDate: toImportText(row.admissionDate),
+          discountFee: toImportText(row.discountFee),
+          studentAadharNumber: toImportText(row.studentAadharNumber),
+          studentPassword: toImportText(row.studentPassword),
+          dateOfBirth: toImportText(row.dateOfBirth),
+          birthId: toImportText(row.birthId),
+          isOrphan: toImportBoolean(row.isOrphan),
+          gender: toImportText(row.gender),
+          caste: toImportText(row.caste),
+          osc: toImportText(row.osc),
+          identificationMark: toImportText(row.identificationMark),
+          previousSchool: toImportText(row.previousSchool),
+          region: toImportText(row.region),
+          bloodGroup: toImportText(row.bloodGroup),
+          previousBoardRollNo: toImportText(row.previousBoardRollNo),
+          address: toImportText(row.address),
+          fatherName: toImportText(row.fatherName),
+          fatherAadharNumber: toImportText(row.fatherAadharNumber),
+          fatherOccupation: toImportText(row.fatherOccupation),
+          fatherEducation: toImportText(row.fatherEducation),
+          fatherMobileNumber: toImportText(row.fatherMobileNumber),
+          fatherProfession: toImportText(row.fatherProfession),
+          fatherIncome: toImportText(row.fatherIncome),
+          fatherEmail: toImportText(row.fatherEmail).toLowerCase(),
+          fatherPassword: toImportText(row.fatherPassword),
+          motherName: toImportText(row.motherName),
+          motherAadharNumber: toImportText(row.motherAadharNumber),
+          motherOccupation: toImportText(row.motherOccupation),
+          motherEducation: toImportText(row.motherEducation),
+          motherMobileNumber: toImportText(row.motherMobileNumber),
+          motherProfession: toImportText(row.motherProfession),
+          motherIncome: toImportText(row.motherIncome),
+        },
+        authHeader,
+      );
+
+      created += 1;
+      results.push({
+        rowNumber: index + 2,
+        identifier,
+        success: true,
+        message: `Created student account for ${student.name}.`,
+      });
+    } catch (error) {
+      failed += 1;
+      results.push({
+        rowNumber: index + 2,
+        identifier,
+        success: false,
+        message: error instanceof Error ? error.message : "Student import failed.",
+      });
+    }
+  }
+
+  return { created, failed, results };
 };
 
 const approveApplicant = async (payload, authHeader) => {
@@ -4186,6 +4379,7 @@ export const handleAdminApi = async (req, res) => {
       case "create_staff":
       case "update_staff":
       case "delete_staff":
+      case "bulk_import_staff":
       case "list_staff_attendance":
       case "save_staff_attendance":
         await requireAdminOrWorkspace(authHeader, ["hr"]);
@@ -4196,6 +4390,7 @@ export const handleAdminApi = async (req, res) => {
         await requireAdmin(authHeader);
         break;
       case "create_student_bundle":
+      case "bulk_import_students":
         await requireAdminOrWorkspace(authHeader, ["admission"]);
         break;
       case "approve_applicant":
@@ -4242,6 +4437,9 @@ export const handleAdminApi = async (req, res) => {
       case "create_staff":
         send(res, 200, { data: await createStaff(payload, authHeader) });
         return true;
+      case "bulk_import_staff":
+        send(res, 200, { data: await bulkImportStaff(payload, authHeader) });
+        return true;
       case "create_class":
         send(res, 200, { data: await createClass(payload, authHeader) });
         return true;
@@ -4265,6 +4463,9 @@ export const handleAdminApi = async (req, res) => {
         return true;
       case "create_student_bundle":
         send(res, 200, { data: await createStudentBundle(payload, authHeader) });
+        return true;
+      case "bulk_import_students":
+        send(res, 200, { data: await bulkImportStudents(payload, authHeader) });
         return true;
       case "approve_applicant":
         send(res, 200, { data: await approveApplicant(payload, authHeader) });
