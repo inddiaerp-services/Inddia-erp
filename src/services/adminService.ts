@@ -1,6 +1,6 @@
 import { ROLES } from "../config/roles";
 import { normalizeStaffWorkspace, STAFF_WORKSPACES } from "../config/staffWorkspaces";
-import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../mobile/capacitor";
+import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../utils/adminApi";
 import { authStore } from "../store/authStore";
 import { supabase } from "./supabaseClient";
 import { addDaysToDateString, formatShortDateFromDateString, getIndiaTodayIso, getMonthDates, getWeekdayFromDateString } from "../utils/date";

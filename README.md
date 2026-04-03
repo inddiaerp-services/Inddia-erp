@@ -37,12 +37,6 @@ Required mobile environment:
 
 Recommended commands:
 
-1. `npm run mobile:add:android`
-2. `npm run mobile:add:ios`
-3. `npm run mobile:assets`
-4. `npm run mobile:build`
-5. `npm run mobile:open:android`
-6. `npm run mobile:open:ios`
 
 Notes:
 

@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../mobile/capacitor";
+import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../utils/adminApi";
 import { authStore } from "../store/authStore";
 import type {
   BillingCreateValues,

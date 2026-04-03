@@ -21,6 +21,9 @@ const getEarlierDate = (first?: string, second?: string) => {
   return first < second ? first : second;
 };
 
+const getStringValue = (value: string | number | undefined) =>
+  typeof value === "string" ? value : undefined;
+
 type InputProps = InputHTMLAttributes<HTMLInputElement> & {
   label?: string;
   error?: string;
@@ -59,7 +62,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         : undefined;
     const shouldConstrainDigits =
       digitLimit !== undefined && (!props.type || props.type === "text" || props.type === "tel");
-    const dateOfBirthMax = isDateOfBirthInput ? getEarlierDate(props.max, getDateThirtyMonthsAgo()) : props.max;
+    const inputMax = getStringValue(props.max);
+    const dateOfBirthMax = isDateOfBirthInput ? getEarlierDate(inputMax, getDateThirtyMonthsAgo()) : inputMax;
 
     const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
       if (!shouldConstrainDigits && !isDateOfBirthInput) {
