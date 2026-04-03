@@ -24,3 +24,28 @@ The frontend includes a bootstrap super admin fallback so the platform owner can
 - School admins create staff and student accounts inside their own school
 - Staff login uses email + password
 - Student login resolves Student ID to email and then signs in through Supabase Auth
+
+## Mobile app
+
+The project is Capacitor-ready for Android and iOS.
+
+Required mobile environment:
+
+- `VITE_ADMIN_API_URL=https://your-live-domain.com/api/admin`
+- `VITE_SUPABASE_URL=...`
+- `VITE_SUPABASE_ANON_KEY=...`
+
+Recommended commands:
+
+1. `npm run mobile:add:android`
+2. `npm run mobile:add:ios`
+3. `npm run mobile:assets`
+4. `npm run mobile:build`
+5. `npm run mobile:open:android`
+6. `npm run mobile:open:ios`
+
+Notes:
+
+- Native builds should use a deployed HTTPS API endpoint, not `localhost`
+- The app uses `HashRouter` in native mode to avoid route-refresh issues
+- Splash screen, status bar, and offline awareness are configured in Capacitor

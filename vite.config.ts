@@ -7,6 +7,18 @@ const isAdminApiRequest = (url?: string | null) => {
 };
 
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "react-vendor": ["react", "react-dom", "react-router-dom", "zustand", "clsx"],
+          supabase: ["@supabase/supabase-js"],
+          charts: ["recharts"],
+          documents: ["jspdf", "xlsx"],
+        },
+      },
+    },
+  },
   server: {
     proxy: {},
   },

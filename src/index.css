@@ -28,6 +28,10 @@ html {
   scroll-behavior: smooth;
 }
 
+html.native-app {
+  background: #020617;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -40,12 +44,20 @@ body {
     linear-gradient(180deg, #f8fafc 0%, #f3f6fb 100%);
 }
 
+body.native-app {
+  min-height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
 * {
   box-sizing: border-box;
 }
 
 #root {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 input[type="date"],
@@ -74,7 +86,22 @@ input {
   font: inherit;
 }
 
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
 @layer components {
+  .native-offline-banner {
+    @apply sticky top-0 z-[70] px-4 py-3 text-center text-sm font-medium text-amber-950;
+    padding-top: calc(0.75rem + env(safe-area-inset-top));
+    background: linear-gradient(180deg, #fde68a 0%, #facc15 100%);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+  }
+
   .public-shell {
     background:
       radial-gradient(circle at top left, rgba(34, 211, 238, 0.16), transparent 20%),

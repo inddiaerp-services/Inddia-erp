@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../mobile/capacitor";
 import { authStore } from "../store/authStore";
 import type {
   BillingCreateValues,
@@ -186,32 +187,15 @@ const refreshActiveSession = async () => {
   return session;
 };
 
-const getAdminApiEndpoints = () => {
-  const port = import.meta.env.VITE_ADMIN_API_PORT ?? "8787";
-  const endpoints = ["/api/admin"];
-
-  if (typeof window !== "undefined") {
-    const hostname = window.location.hostname.toLowerCase();
-    const isLocalHost =
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname.endsWith(".local");
-
-    if (isLocalHost) {
-      endpoints.push(`http://localhost:${port}/api/admin`);
-    }
-  } else {
-    endpoints.push(`http://localhost:${port}/api/admin`);
-  }
-
-  return Array.from(new Set(endpoints));
-};
-
 const postToAdminApi = async (body: string, accessToken: string) => {
   let lastError: unknown = null;
+  const endpoints = getAdminApiEndpoints();
 
-  for (const endpoint of getAdminApiEndpoints()) {
+  if (endpoints.length === 0) {
+    throw new Error(getAdminApiUnavailableMessage());
+  }
+
+  for (const endpoint of endpoints) {
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -234,16 +218,7 @@ const postToAdminApi = async (body: string, accessToken: string) => {
   }
 
   if (lastError instanceof TypeError) {
-    const isBrowser = typeof window !== "undefined";
-    const isLocalHost =
-      isBrowser &&
-      ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname.toLowerCase());
-
-    throw new Error(
-      isLocalHost
-        ? "Unable to reach the local admin API. Start `npm run dev`, or run `npm run dev:server` so `http://localhost:8787/api/admin` is available, then refresh the page."
-        : "Unable to reach the admin API. In production, make sure the `/api/admin` endpoint is deployed and the required Vercel environment variables are set.",
-    );
+    throw new Error(getAdminApiUnavailableMessage());
   }
 
   throw lastError instanceof Error ? lastError : new Error("Unable to reach the admin API.");

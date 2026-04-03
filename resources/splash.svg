@@ -1,0 +1,22 @@
+<svg width="2732" height="2732" viewBox="0 0 2732 2732" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="2732" height="2732" fill="#020617" />
+  <circle cx="1366" cy="820" r="520" fill="url(#halo)" fill-opacity="0.7" />
+  <rect x="866" y="786" width="1000" height="1160" rx="240" fill="url(#card)" />
+  <rect x="1122" y="1022" width="172" height="690" rx="28" fill="white" />
+  <rect x="1438" y="1022" width="172" height="690" rx="28" fill="#BAE6FD" />
+  <rect x="1294" y="1022" width="144" height="690" rx="18" fill="#0F172A" />
+  <rect x="1122" y="1022" width="488" height="144" rx="24" fill="#7DD3FC" />
+  <rect x="1122" y="1568" width="488" height="144" rx="24" fill="#22D3EE" />
+  <path d="M1026 2134H1706" stroke="#38BDF8" stroke-width="34" stroke-linecap="round" stroke-opacity="0.65" />
+  <path d="M1148 2266H1584" stroke="#67E8F9" stroke-width="24" stroke-linecap="round" stroke-opacity="0.5" />
+  <defs>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1366 820) rotate(90) scale(520)">
+      <stop stop-color="#22D3EE" />
+      <stop offset="1" stop-color="#020617" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="card" x1="866" y1="786" x2="1866" y2="1946" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A" />
+      <stop offset="1" stop-color="#082F49" />
+    </linearGradient>
+  </defs>
+</svg>

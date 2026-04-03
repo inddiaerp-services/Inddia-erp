@@ -1,5 +1,6 @@
 import { ROLES } from "../config/roles";
 import { normalizeStaffWorkspace, STAFF_WORKSPACES } from "../config/staffWorkspaces";
+import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../mobile/capacitor";
 import { authStore } from "../store/authStore";
 import { supabase } from "./supabaseClient";
 import { addDaysToDateString, formatShortDateFromDateString, getIndiaTodayIso, getMonthDates, getWeekdayFromDateString } from "../utils/date";
@@ -601,15 +602,15 @@ const refreshActiveSession = async () => {
   return session;
 };
 
-const getAdminApiEndpoints = () => {
-  const port = import.meta.env.VITE_ADMIN_API_PORT ?? "8787";
-  return Array.from(new Set(["/api/admin", `http://localhost:${port}/api/admin`]));
-};
-
 const postToAdminApi = async (body: string, accessToken: string) => {
   let lastError: unknown = null;
+  const endpoints = getAdminApiEndpoints();
 
-  for (const endpoint of getAdminApiEndpoints()) {
+  if (endpoints.length === 0) {
+    throw new Error(getAdminApiUnavailableMessage());
+  }
+
+  for (const endpoint of endpoints) {
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -632,9 +633,7 @@ const postToAdminApi = async (body: string, accessToken: string) => {
   }
 
   if (lastError instanceof TypeError) {
-    throw new Error(
-      "Unable to reach the local admin API. Start `npm run dev`, or run `npm run dev:server` so `http://localhost:8787/api/admin` is available, then refresh the page.",
-    );
+    throw new Error(getAdminApiUnavailableMessage());
   }
 
   throw lastError instanceof Error ? lastError : new Error("Unable to reach the admin API.");

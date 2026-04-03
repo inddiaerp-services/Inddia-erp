@@ -69,6 +69,7 @@ import type { AuthUser, CurrentSchool } from "./store/authStore";
 import type { AppRole } from "./config/roles";
 import { STAFF_WORKSPACES } from "./config/staffWorkspaces";
 import SubscriptionExpiredPage from "./pages/auth/SubscriptionExpired";
+import ConnectivityBanner from "./components/mobile/ConnectivityBanner";
 import SuperAdminDashboardPage from "./pages/superAdmin/SuperAdminDashboard";
 import SuperAdminSchoolsPage from "./pages/superAdmin/SuperAdminSchools";
 import SuperAdminSchoolCreatePage from "./pages/superAdmin/SuperAdminSchoolCreate";
@@ -211,7 +212,9 @@ function App() {
   }, [logout, setAuth, setLoading]);
 
   return (
-    <Routes>
+    <>
+      <ConnectivityBanner />
+      <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/home" element={<Navigate to="/" replace />} />
 
@@ -365,8 +368,9 @@ function App() {
         </Route>
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }
 

@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes } from "react";
+import type { ChangeEvent, InputHTMLAttributes } from "react";
 import { forwardRef } from "react";
 import { cn } from "../../lib/utils";
 
@@ -19,6 +19,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       labelClassName,
       errorClassName,
       variant = "light",
+      onChange,
       ...props
     },
     ref,
@@ -26,6 +27,37 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     const isCalendarInput = props.type === "date" || props.type === "month";
     const isSuperAdminArea =
       typeof window !== "undefined" && window.location.pathname.startsWith("/super-admin");
+    const constraintSource = [label, props.name, props.id, props.placeholder]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    const digitLimit = constraintSource.includes("aadhaar") || constraintSource.includes("aadhar")
+      ? 12
+      : constraintSource.includes("mobile") || constraintSource.includes("phone")
+        ? 10
+        : undefined;
+    const shouldConstrainDigits =
+      digitLimit !== undefined && (!props.type || props.type === "text" || props.type === "tel");
+
+    const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+      if (!shouldConstrainDigits) {
+        onChange?.(event);
+        return;
+      }
+
+      const sanitizedValue = event.target.value.replace(/\D/g, "").slice(0, digitLimit);
+
+      if (sanitizedValue === event.target.value) {
+        onChange?.(event);
+        return;
+      }
+
+      onChange?.({
+        ...event,
+        target: { ...event.target, value: sanitizedValue },
+        currentTarget: { ...event.currentTarget, value: sanitizedValue },
+      } as ChangeEvent<HTMLInputElement>);
+    };
 
     return (
       <label className="block space-y-2">
@@ -55,6 +87,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               className,
             )}
             {...props}
+            inputMode={shouldConstrainDigits ? "numeric" : props.inputMode}
+            maxLength={shouldConstrainDigits ? Math.min(props.maxLength ?? digitLimit, digitLimit) : props.maxLength}
+            pattern={shouldConstrainDigits ? "\\d*" : props.pattern}
+            onChange={handleChange}
           />
           {isCalendarInput ? (
             <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-slate-400">
