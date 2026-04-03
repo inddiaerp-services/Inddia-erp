@@ -3908,10 +3908,25 @@ export const listStaffAttendance = async (filters?: {
   staffId?: string;
   status?: StaffAttendanceStatus | "";
 }): Promise<StaffAttendanceRecord[]> => {
+  try {
+    return await invokeServerAction<StaffAttendanceRecord[]>("list_staff_attendance", {
+      date: filters?.date ?? "",
+      month: filters?.month ?? "",
+      staffId: filters?.staffId ?? "",
+      status: filters?.status ?? "",
+    });
+  } catch (error) {
+    if (!isAdminApiUnavailable(error)) {
+      throw error;
+    }
+  }
+
   const client = requireSupabase();
+  const schoolId = requireCurrentSchoolId();
   let query = client
     .from("staff_attendance")
     .select("id, staff_id, attendance_date, status, check_in_time, check_out_time, notes, marked_by, created_at, updated_at")
+    .eq("school_id", schoolId)
     .order("attendance_date", { ascending: false })
     .order("created_at", { ascending: false });
 

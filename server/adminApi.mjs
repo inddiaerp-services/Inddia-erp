@@ -1479,6 +1479,95 @@ const saveStaffAttendance = async (payload, authHeader) => {
   return { ok: true };
 };
 
+const listStaffAttendance = async (payload, authHeader) => {
+  const { user, profile } = await getUserProfile(authHeader);
+  const tenantSchoolId = await ensureTenantSchoolExists({ user, profile });
+  const date = String(payload.date ?? "").trim();
+  const month = String(payload.month ?? "").trim();
+  const staffId = String(payload.staffId ?? "").trim();
+  const status = String(payload.status ?? "").trim();
+
+  let query = service
+    .from("staff_attendance")
+    .select("id, staff_id, attendance_date, status, check_in_time, check_out_time, notes, marked_by, created_at, updated_at")
+    .eq("school_id", tenantSchoolId)
+    .order("attendance_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (date) {
+    query = query.eq("attendance_date", date);
+  }
+
+  if (month && /^\d{4}-\d{2}$/.test(month)) {
+    query = query
+      .gte("attendance_date", `${month}-01`)
+      .lt("attendance_date", `${month}-32`);
+  }
+
+  if (staffId) {
+    query = query.eq("staff_id", staffId);
+  }
+
+  if (status) {
+    query = query.eq("status", status);
+  }
+
+  const { data: attendanceRows, error: attendanceError } = await query;
+  if (attendanceError) {
+    if (String(attendanceError.message).toLowerCase().includes("staff_attendance")) {
+      throw new Error("Staff attendance requires the latest database schema. Run the updated schema.sql in Supabase first.");
+    }
+    throw new Error(attendanceError.message);
+  }
+
+  const rows = attendanceRows ?? [];
+  const staffIds = Array.from(new Set(rows.map((row) => String(row.staff_id ?? "").trim()).filter(Boolean)));
+  const markedByIds = Array.from(new Set(rows.map((row) => String(row.marked_by ?? "").trim()).filter(Boolean)));
+
+  const [{ data: staffRows, error: staffError }, { data: userRows, error: userError }] = await Promise.all([
+    staffIds.length > 0
+      ? service
+          .from("staff")
+          .select("id, name, role")
+          .eq("school_id", tenantSchoolId)
+          .in("id", staffIds)
+      : Promise.resolve({ data: [], error: null }),
+    markedByIds.length > 0
+      ? service
+          .from("users")
+          .select("id, name")
+          .in("id", markedByIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (staffError) throw new Error(staffError.message);
+  if (userError) throw new Error(userError.message);
+
+  const staffMap = new Map((staffRows ?? []).map((row) => [row.id, row]));
+  const userMap = new Map((userRows ?? []).map((row) => [row.id, row]));
+
+  return rows.map((row) => {
+    const staff = staffMap.get(row.staff_id) ?? null;
+    const markedByUser = row.marked_by ? userMap.get(row.marked_by) ?? null : null;
+
+    return {
+      id: row.id,
+      staffId: row.staff_id,
+      staffName: staff?.name ?? "Unknown staff",
+      role: staff?.role ?? "Staff",
+      attendanceDate: row.attendance_date,
+      status: row.status,
+      checkInTime: row.check_in_time ? String(row.check_in_time).slice(0, 5) : null,
+      checkOutTime: row.check_out_time ? String(row.check_out_time).slice(0, 5) : null,
+      notes: row.notes ?? null,
+      markedByUserId: row.marked_by ?? null,
+      markedByName: markedByUser?.name ?? null,
+      createdAt: row.created_at ?? null,
+      updatedAt: row.updated_at ?? null,
+    };
+  });
+};
+
 const createStaff = async (payload, authHeader) => {
   const { profile } = await getUserProfile(authHeader);
   const tenantSchoolId = String(profile.school_id ?? "").trim();
@@ -4072,6 +4161,7 @@ export const handleAdminApi = async (req, res) => {
       case "create_staff":
       case "update_staff":
       case "delete_staff":
+      case "list_staff_attendance":
       case "save_staff_attendance":
         await requireAdminOrWorkspace(authHeader, ["hr"]);
         break;
@@ -4144,6 +4234,9 @@ export const handleAdminApi = async (req, res) => {
         return true;
       case "save_staff_attendance":
         send(res, 200, { data: await saveStaffAttendance(payload, authHeader) });
+        return true;
+      case "list_staff_attendance":
+        send(res, 200, { data: await listStaffAttendance(payload, authHeader) });
         return true;
       case "create_student_bundle":
         send(res, 200, { data: await createStudentBundle(payload, authHeader) });
