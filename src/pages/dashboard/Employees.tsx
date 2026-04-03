@@ -342,7 +342,7 @@ export const EmployeesPage = () => {
           },
         ]}
         renderActions={(member) => (
-          <div className="inline-flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1.5">
+          <div className="inline-flex flex-nowrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 whitespace-nowrap">
             <Link
               to={`/dashboard/employees/${member.id}`}
               className="inline-flex min-h-9 items-center justify-center rounded-xl border border-brand-200 bg-white px-3 py-2 text-xs font-semibold text-brand-700 transition hover:bg-brand-50"
