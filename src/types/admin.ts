@@ -204,6 +204,12 @@ export type TimetableFormValues = {
   breakLabel: string;
 };
 
+export type TimetableSettings = {
+  schoolStartTime: string;
+  schoolEndTime: string;
+  classDurationMinutes: number;
+};
+
 export type TimetableClassOption = {
   className: string;
   sections: string[];

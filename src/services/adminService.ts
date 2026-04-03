@@ -57,6 +57,7 @@ import type {
   TimetableClassOption,
   TimetableDay,
   TimetableFormValues,
+  TimetableSettings,
   TimetableImpactRecord,
   TimetableSlotRecord,
   VehicleDetail,
@@ -5129,7 +5130,14 @@ const dayFromDate = (value: string) => {
   return getWeekdayFromDateString(value) as TimetableDay;
 };
 
-const validateTimetableForm = (values: TimetableFormValues) => {
+const getResolvedTimetableSettings = (settings?: TimetableSettings) => ({
+  schoolStartTime: settings?.schoolStartTime ?? TIMETABLE_SCHOOL_START,
+  schoolEndTime: settings?.schoolEndTime ?? TIMETABLE_SCHOOL_END,
+  classDurationMinutes: settings?.classDurationMinutes ?? TIMETABLE_CLASS_DURATION_MINUTES,
+});
+
+const validateTimetableForm = (values: TimetableFormValues, settings?: TimetableSettings) => {
+  const resolvedSettings = getResolvedTimetableSettings(settings);
   const durationMinutes = timetableTimeToMinutes(values.endTime) - timetableTimeToMinutes(values.startTime);
 
   if (
@@ -5147,10 +5155,10 @@ const validateTimetableForm = (values: TimetableFormValues) => {
   }
 
   if (
-    timetableTimeToMinutes(values.startTime) < timetableTimeToMinutes(TIMETABLE_SCHOOL_START) ||
-    timetableTimeToMinutes(values.endTime) > timetableTimeToMinutes(TIMETABLE_SCHOOL_END)
+    timetableTimeToMinutes(values.startTime) < timetableTimeToMinutes(resolvedSettings.schoolStartTime) ||
+    timetableTimeToMinutes(values.endTime) > timetableTimeToMinutes(resolvedSettings.schoolEndTime)
   ) {
-    throw new Error(`Timetable slots must stay within school timing ${TIMETABLE_SCHOOL_START} to ${TIMETABLE_SCHOOL_END}.`);
+    throw new Error(`Timetable slots must stay within school timing ${resolvedSettings.schoolStartTime} to ${resolvedSettings.schoolEndTime}.`);
   }
 
   if (values.day === "Sun") {
@@ -5170,8 +5178,8 @@ const validateTimetableForm = (values: TimetableFormValues) => {
     return;
   }
 
-  if (durationMinutes !== TIMETABLE_CLASS_DURATION_MINUTES) {
-    throw new Error("Teaching class duration must be exactly 1 hour.");
+  if (durationMinutes !== resolvedSettings.classDurationMinutes) {
+    throw new Error(`Teaching class duration must be exactly ${resolvedSettings.classDurationMinutes} minutes.`);
   }
 
   if (!values.subjectId || !values.teacherId) {
@@ -6029,9 +6037,9 @@ export const cancelTimetableImpact = async (
 
 export const createTimetableSlot = async (
   values: TimetableFormValues,
-  context?: { userId?: string; role: string | null },
+  context?: { userId?: string; role: string | null; timetableSettings?: TimetableSettings },
 ) => {
-  validateTimetableForm(values);
+  validateTimetableForm(values, context?.timetableSettings);
   if (context) {
     await assertTimetableWriteAccess(context.userId, context.role, values.className, values.section);
   }
@@ -6073,9 +6081,9 @@ export const createTimetableSlot = async (
 export const updateTimetableSlot = async (
   slotId: string,
   values: TimetableFormValues,
-  context?: { userId?: string; role: string | null },
+  context?: { userId?: string; role: string | null; timetableSettings?: TimetableSettings },
 ) => {
-  validateTimetableForm(values);
+  validateTimetableForm(values, context?.timetableSettings);
   const existingRow = await getTimetableRowById(slotId);
   if (context) {
     await assertTimetableWriteAccess(context.userId, context.role, values.className, values.section);

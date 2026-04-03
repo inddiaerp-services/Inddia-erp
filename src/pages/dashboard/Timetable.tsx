@@ -35,15 +35,20 @@ import type {
   TimetableDay,
   TimetableFormValues,
   TimetableImpactRecord,
+  TimetableSettings,
   TimetableSlotRecord,
   HolidayRecord,
 } from "../../types/admin";
 import { addDaysToDateString, formatShortDateFromDateString, getIndiaTodayIso, getWeekdayFromDateString } from "../../utils/date";
 
 const DAYS: TimetableDay[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const SCHOOL_DAY_START = "08:00";
-const SCHOOL_DAY_END = "16:30";
-const DEFAULT_CLASS_DURATION_MINUTES = 60;
+const DEFAULT_TIMETABLE_SETTINGS: TimetableSettings = {
+  schoolStartTime: "08:00",
+  schoolEndTime: "16:30",
+  classDurationMinutes: 60,
+};
+const TIMETABLE_SETTINGS_STORAGE_KEY = "inddia-timetable-settings";
+
 const buildHalfHourOptions = (startHour: number, endHour: number, includeEndHalfHour = false) => {
   const options: string[] = [];
 
@@ -56,8 +61,12 @@ const buildHalfHourOptions = (startHour: number, endHour: number, includeEndHalf
 
   return options;
 };
-
-const TIME_OPTIONS = buildHalfHourOptions(8, 16, true);
+const buildTimeOptions = (settings: TimetableSettings) =>
+  buildHalfHourOptions(
+    Number(settings.schoolStartTime.split(":")[0] ?? "8"),
+    Number(settings.schoolEndTime.split(":")[0] ?? "16"),
+    true,
+  );
 const BREAK_PRESETS = [
   { label: "Short Break", type: "Short Break", durationMinutes: 30, defaultLabel: "Short Break" },
   { label: "Lunch Break", type: "Lunch Break", durationMinutes: 60, defaultLabel: "Lunch Break" },
@@ -122,20 +131,39 @@ const minutesToTime = (minutes: number) => {
 };
 
 const addMinutesToTime = (value: string, minutes: number) => minutesToTime(timeToMinutes(value) + minutes);
-const getNextTeachingEndTime = (startTime: string) => addMinutesToTime(startTime, DEFAULT_CLASS_DURATION_MINUTES);
+const getNextTeachingEndTime = (startTime: string, classDurationMinutes: number) => addMinutesToTime(startTime, classDurationMinutes);
 const uniqueByKey = <T,>(items: T[], getKey: (item: T) => string) =>
   Array.from(new Map(items.map((item) => [getKey(item), item])).values());
 
-const generateSchoolDayRows = (slots: TimetableSlotRecord[]) => {
+const loadStoredTimetableSettings = (): TimetableSettings => {
+  if (typeof window === "undefined") {
+    return DEFAULT_TIMETABLE_SETTINGS;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(TIMETABLE_SETTINGS_STORAGE_KEY);
+    if (!raw) return DEFAULT_TIMETABLE_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<TimetableSettings>;
+    return {
+      schoolStartTime: parsed.schoolStartTime ?? DEFAULT_TIMETABLE_SETTINGS.schoolStartTime,
+      schoolEndTime: parsed.schoolEndTime ?? DEFAULT_TIMETABLE_SETTINGS.schoolEndTime,
+      classDurationMinutes: parsed.classDurationMinutes ?? DEFAULT_TIMETABLE_SETTINGS.classDurationMinutes,
+    };
+  } catch {
+    return DEFAULT_TIMETABLE_SETTINGS;
+  }
+};
+
+const generateSchoolDayRows = (slots: TimetableSlotRecord[], settings: TimetableSettings) => {
   const schoolBreaks = uniqueByKey(
     slots.filter((slot) => slot.isBreak),
     (slot) => `${slot.startTime}-${slot.endTime}-${slot.breakType ?? slot.breakLabel ?? "Break"}`,
   ).sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   const rows: Array<{ start: string; end: string }> = [];
-  let cursor = SCHOOL_DAY_START;
+  let cursor = settings.schoolStartTime;
 
-  while (cursor < SCHOOL_DAY_END) {
+  while (cursor < settings.schoolEndTime) {
     const activeBreak = schoolBreaks.find((slot) => slot.startTime === cursor);
     if (activeBreak) {
       rows.push({ start: activeBreak.startTime, end: activeBreak.endTime });
@@ -143,8 +171,8 @@ const generateSchoolDayRows = (slots: TimetableSlotRecord[]) => {
       continue;
     }
 
-    const nextEnd = getNextTeachingEndTime(cursor);
-    if (nextEnd > SCHOOL_DAY_END) break;
+    const nextEnd = getNextTeachingEndTime(cursor, settings.classDurationMinutes);
+    if (nextEnd > settings.schoolEndTime) break;
     rows.push({ start: cursor, end: nextEnd });
     cursor = nextEnd;
   }
@@ -190,8 +218,11 @@ const emptyForm: TimetableFormValues = {
   subjectId: "",
   teacherId: "",
   day: "Mon",
-  startTime: SCHOOL_DAY_START,
-  endTime: getNextTeachingEndTime(SCHOOL_DAY_START),
+  startTime: DEFAULT_TIMETABLE_SETTINGS.schoolStartTime,
+  endTime: getNextTeachingEndTime(
+    DEFAULT_TIMETABLE_SETTINGS.schoolStartTime,
+    DEFAULT_TIMETABLE_SETTINGS.classDurationMinutes,
+  ),
   isBreak: false,
   breakType: "",
   breakLabel: "",
@@ -230,6 +261,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
   const [selectedHoliday, setSelectedHoliday] = useState<{ title: string; description: string | null } | null>(null);
   const [currentStaff, setCurrentStaff] = useState<StaffRecord | null>(null);
   const [appliedQueryFilters, setAppliedQueryFilters] = useState(false);
+  const [timetableSettings, setTimetableSettings] = useState<TimetableSettings>(loadStoredTimetableSettings);
 
   const availableSections = useMemo(
     () => classOptions.find((item) => item.className === selectedClass)?.sections ?? [],
@@ -252,6 +284,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
     () => getWeekdayFromDateString(selectedDate) as TimetableDay,
     [selectedDate],
   );
+  const timeOptions = useMemo(() => buildTimeOptions(timetableSettings), [timetableSettings]);
 
   const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate]);
 
@@ -267,18 +300,23 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
   }, [holidays, weekDates]);
 
   const timeRows = useMemo(() => {
-    return generateSchoolDayRows(slots);
-  }, [slots]);
+    return generateSchoolDayRows(slots, timetableSettings);
+  }, [slots, timetableSettings]);
 
   const canEdit = mode === "admin" ? access.canEditAny : mode === "coordinator" ? access.canEditSelectedClass : false;
   const adminSchoolWideBreak = isAdminSchoolWideBreak(mode, role, form);
   const availableEndTimeOptions = useMemo(
     () =>
       form.isBreak
-        ? TIME_OPTIONS.filter((time) => time > form.startTime)
-        : TIME_OPTIONS.filter((time) => time === getNextTeachingEndTime(form.startTime)),
-    [form.isBreak, form.startTime],
+        ? timeOptions.filter((time) => time > form.startTime)
+        : timeOptions.filter((time) => time === getNextTeachingEndTime(form.startTime, timetableSettings.classDurationMinutes)),
+    [form.isBreak, form.startTime, timeOptions, timetableSettings.classDurationMinutes],
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(TIMETABLE_SETTINGS_STORAGE_KEY, JSON.stringify(timetableSettings));
+  }, [timetableSettings]);
 
   useEffect(() => {
     const holiday = holidays.find((item) => item.holidayDate === selectedDate) ?? null;
@@ -641,7 +679,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
       teacherId: teacherPool[0]?.id ?? teachers[0]?.id ?? "",
       day,
       startTime: start,
-      endTime: getNextTeachingEndTime(start),
+      endTime: getNextTeachingEndTime(start, timetableSettings.classDurationMinutes),
       isBreak: false,
       breakType: "",
       breakLabel: "",
@@ -688,9 +726,9 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
       if (key === "startTime") {
         next.endTime = current.isBreak
           ? next.endTime <= value
-            ? TIME_OPTIONS.find((time) => time > value) ?? current.endTime
+            ? timeOptions.find((time) => time > value) ?? current.endTime
             : next.endTime
-          : getNextTeachingEndTime(String(value));
+          : getNextTeachingEndTime(String(value), timetableSettings.classDurationMinutes);
       }
       if (key === "isBreak") {
         if (value) {
@@ -704,7 +742,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
           next.teacherId = teacherPool[0]?.id ?? teachers[0]?.id ?? "";
           next.breakType = "";
           next.breakLabel = "";
-          next.endTime = getNextTeachingEndTime(current.startTime);
+          next.endTime = getNextTeachingEndTime(current.startTime, timetableSettings.classDurationMinutes);
         }
       }
       if (key === "breakType" && next.isBreak) {
@@ -720,7 +758,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
     setSaving(true);
     setFormError("");
     try {
-      const context = { userId: user?.id, role };
+      const context = { userId: user?.id, role, timetableSettings };
       if (modal.mode === "edit" && modal.slot) {
         await updateTimetableSlot(modal.slot.id, form, context);
       } else {
@@ -740,9 +778,9 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
     setFormError("");
     setForm((current) => {
       const nextEnd = addMinutesToTime(current.startTime, durationMinutes);
-      const resolvedEnd = TIME_OPTIONS.includes(nextEnd)
+      const resolvedEnd = timeOptions.includes(nextEnd)
         ? nextEnd
-        : TIME_OPTIONS.find((time) => time > current.startTime) ?? current.endTime;
+        : timeOptions.find((time) => time > current.startTime) ?? current.endTime;
 
       return {
         ...current,
@@ -855,8 +893,8 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
                         subjectId: "",
                         teacherId: "",
                         day: "Mon",
-                        startTime: SCHOOL_DAY_START,
-                        endTime: addMinutesToTime(SCHOOL_DAY_START, 30),
+                        startTime: timetableSettings.schoolStartTime,
+                        endTime: addMinutesToTime(timetableSettings.schoolStartTime, 30),
                         isBreak: true,
                         breakType: "Short Break",
                         breakLabel: "Short Break",
@@ -905,6 +943,12 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
 
           <div className="mt-5 flex flex-wrap gap-3 text-sm">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+              School Hours: {timetableSettings.schoolStartTime} - {timetableSettings.schoolEndTime}
+            </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+              Class Duration: {timetableSettings.classDurationMinutes} min
+            </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
               Access: {canEdit ? "Edit enabled" : "Read only"}
             </span>
             <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">
@@ -948,6 +992,65 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
           </div>
         </Card>
       )}
+
+      {mode === "admin" && role === ROLES.ADMIN ? (
+        <Card className="border-slate-200 bg-white shadow-sm">
+          <div className="grid gap-4 md:grid-cols-4">
+            <Input
+              label="School Start Time"
+              type="time"
+              value={timetableSettings.schoolStartTime}
+              onChange={(event) =>
+                setTimetableSettings((current) =>
+                  event.target.value < current.schoolEndTime
+                    ? { ...current, schoolStartTime: event.target.value }
+                    : current,
+                )
+              }
+            />
+            <Input
+              label="School End Time"
+              type="time"
+              value={timetableSettings.schoolEndTime}
+              onChange={(event) =>
+                setTimetableSettings((current) =>
+                  current.schoolStartTime < event.target.value
+                    ? { ...current, schoolEndTime: event.target.value }
+                    : current,
+                )
+              }
+            />
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Class Duration</span>
+              <select
+                value={String(timetableSettings.classDurationMinutes)}
+                onChange={(event) =>
+                  setTimetableSettings((current) => ({
+                    ...current,
+                    classDurationMinutes: Number(event.target.value),
+                  }))
+                }
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+              >
+                <option value="30">30 Minutes</option>
+                <option value="45">45 Minutes</option>
+                <option value="60">60 Minutes</option>
+                <option value="90">90 Minutes</option>
+              </select>
+            </label>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                variant="ghost"
+                className="bg-slate-100 text-slate-700 hover:bg-slate-200"
+                onClick={() => setTimetableSettings(DEFAULT_TIMETABLE_SETTINGS)}
+              >
+                Reset Timings
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       {selectedHoliday ? (
         <Card className="border-amber-200 bg-amber-50 shadow-sm">
@@ -1058,7 +1161,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
             ? "This break will be applied to all classes and sections from Monday to Saturday using the same timing."
             : form.isBreak
               ? "This break will be applied to the selected class and section from Monday to Saturday using the same timing."
-            : "Teaching classes stay fixed at 1 hour. Only break slots can use 30-minute or 1-hour duration."
+            : `Teaching classes follow the configured ${timetableSettings.classDurationMinutes}-minute duration. Only break slots can use 30-minute or 1-hour duration.`
         }
       >
         <form className="space-y-5" onSubmit={handleSave}>
@@ -1213,7 +1316,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
             )}
             {form.isBreak ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                Set one morning short break for 30 minutes and one afternoon lunch break for 1 hour. Regular classes remain fixed at 1 hour.
+                Set one morning short break for 30 minutes and one afternoon lunch break for 1 hour. Regular classes use the configured class duration.
               </div>
             ) : (
             <label className="block">
@@ -1240,7 +1343,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                 disabled={modal.mode === "view"}
               >
-                {TIME_OPTIONS.slice(0, -1).map((time) => (
+                {timeOptions.slice(0, -1).map((time) => (
                   <option key={time} value={time}>{time}</option>
                 ))}
               </select>
@@ -1260,7 +1363,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
             </label>
             {!form.isBreak ? (
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 md:col-span-2">
-                Class periods stay fixed to 1 hour, but their start time can move after a break. Example: if a break is `09:00-09:30`, the next class can run `09:30-10:30`.
+                Class periods stay fixed to {timetableSettings.classDurationMinutes} minutes, but their start time can move after a break. Example: if a break is `09:00-09:30`, the next class shifts automatically from that point.
               </div>
             ) : null}
           </div>
