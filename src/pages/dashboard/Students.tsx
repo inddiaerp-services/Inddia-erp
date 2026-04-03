@@ -65,6 +65,19 @@ const genderOptions = ["Male", "Female", "Other"];
 const regionOptions = ["Urban", "Rural", "Semi-Urban", "Tribal"];
 const bloodGroupOptions = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
+const formatDateForInput = (value: Date) => {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getMaxDateOfBirth = () => {
+  const value = new Date();
+  value.setMonth(value.getMonth() - 30);
+  return formatDateForInput(value);
+};
+
 type ModalState = {
   open: boolean;
   mode: "create" | "edit";
@@ -87,6 +100,7 @@ export const StudentsPage = () => {
   const [sectionFilter, setSectionFilter] = useState("");
   const [canCreateStudent, setCanCreateStudent] = useState(role === ROLES.ADMIN);
   const canManageStudentRecords = role === ROLES.ADMIN;
+  const maxDateOfBirth = getMaxDateOfBirth();
   const filteredStudents = students.filter((student) => {
     const haystack = `${student.name} ${student.schoolId ?? ""} ${student.className ?? ""} ${student.section ?? ""} ${student.fatherName ?? ""} ${student.motherName ?? ""}`.toLowerCase();
     const matchesSearch = !search.trim() || haystack.includes(search.trim().toLowerCase());
@@ -283,6 +297,14 @@ export const StudentsPage = () => {
         return { ...current, className: value as string, section: "" };
       }
 
+      if (key === "dateOfBirth") {
+        const nextValue = String(value ?? "");
+        return {
+          ...current,
+          dateOfBirth: nextValue && nextValue > maxDateOfBirth ? maxDateOfBirth : nextValue,
+        };
+      }
+
       return { ...current, [key]: value };
     });
   };
@@ -315,6 +337,10 @@ export const StudentsPage = () => {
     setSaving(true);
     setFormError("");
     try {
+      if (form.dateOfBirth && form.dateOfBirth > maxDateOfBirth) {
+        throw new Error(`Date of birth must be on or before ${maxDateOfBirth}.`);
+      }
+
       if (modal.mode === "create") {
         await createStudent(form);
       } else if (
@@ -609,7 +635,7 @@ export const StudentsPage = () => {
             <p className="text-xs uppercase tracking-[0.22em] text-brand-600">Other Information</p>
             <h3 className="mt-2 text-lg font-semibold text-slate-900">Personal and Academic Background</h3>
             <div className="mt-4 grid gap-5 md:grid-cols-2">
-              <Input label="Date of Birth" type="date" value={form.dateOfBirth} onChange={(event) => handleChange("dateOfBirth", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
+              <Input label="Date of Birth" type="date" value={form.dateOfBirth} max={maxDateOfBirth} onChange={(event) => handleChange("dateOfBirth", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <Input label="Student Birth ID / NIC" value={form.birthId} onChange={(event) => handleChange("birthId", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Orphan Student</span>
@@ -686,7 +712,6 @@ export const StudentsPage = () => {
               <Input label="Occupation" value={form.fatherOccupation} onChange={(event) => handleChange("fatherOccupation", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <Input label="Education" value={form.fatherEducation} onChange={(event) => handleChange("fatherEducation", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <Input label="Mobile Number" value={form.fatherMobileNumber} onChange={(event) => handleChange("fatherMobileNumber", event.target.value)} required className="border-slate-200 bg-white text-slate-900" />
-              <Input label="Profession" value={form.fatherProfession} onChange={(event) => handleChange("fatherProfession", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <Input label="Income" type="number" min="0" step="0.01" value={form.fatherIncome} onChange={(event) => handleChange("fatherIncome", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <Input label="Mail ID" type="email" value={form.fatherEmail} onChange={(event) => handleChange("fatherEmail", event.target.value)} required className="border-slate-200 bg-white text-slate-900" placeholder="father@email.com" />
               <Input
@@ -710,7 +735,6 @@ export const StudentsPage = () => {
               <Input label="Occupation" value={form.motherOccupation} onChange={(event) => handleChange("motherOccupation", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <Input label="Education" value={form.motherEducation} onChange={(event) => handleChange("motherEducation", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <Input label="Mobile Number" value={form.motherMobileNumber} onChange={(event) => handleChange("motherMobileNumber", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
-              <Input label="Profession" value={form.motherProfession} onChange={(event) => handleChange("motherProfession", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <Input label="Income" type="number" min="0" step="0.01" value={form.motherIncome} onChange={(event) => handleChange("motherIncome", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
             </div>
           </div>
