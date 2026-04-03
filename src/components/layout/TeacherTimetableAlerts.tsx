@@ -95,7 +95,6 @@ const showSystemNotification = async (title: string, body: string) => {
       body,
       tag: `teacher-timetable-${title}-${body}`,
       requireInteraction: true,
-      renotify: true,
       silent: true,
     });
   } catch {
