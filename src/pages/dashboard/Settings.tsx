@@ -1,11 +1,19 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
 import Input from "../../components/ui/Input";
 import { ROLES } from "../../config/roles";
+import { normalizeStaffWorkspace, STAFF_WORKSPACES } from "../../config/staffWorkspaces";
 import { authStore } from "../../store/authStore";
 import { changeCurrentUserPassword } from "../../services/authService";
+import { getStaffByUserId } from "../../services/adminService";
+import {
+  loadTeacherTimetableAlertSettings,
+  requestBrowserNotificationPermission,
+  saveTeacherTimetableAlertSettings,
+  type TeacherTimetableAlertSettings,
+} from "../../utils/teacherTimetableAlerts";
 import { AdminPageHeader, DetailField, DetailSection } from "./adminPageUtils";
 
 const roleLabels: Record<string, string> = {
@@ -31,6 +39,13 @@ export const SettingsPage = () => {
   const [passwordError, setPasswordError] = useState("");
   const [passwordSuccess, setPasswordSuccess] = useState("");
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [isTeacherWorkspace, setIsTeacherWorkspace] = useState(false);
+  const [teacherAlertSettings, setTeacherAlertSettings] = useState<TeacherTimetableAlertSettings>(
+    loadTeacherTimetableAlertSettings(user?.id),
+  );
+  const [notificationPermission, setNotificationPermission] = useState<string>(
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+  );
 
   const sessionStatus = session ? "Active" : "No active session";
   const roleLabel = role ? roleLabels[role] ?? role : "User";
@@ -40,6 +55,53 @@ export const SettingsPage = () => {
     if (role === ROLES.STUDENT || role === ROLES.PARENT) return "Limited academic access";
     return "Standard access";
   }, [role]);
+
+  useEffect(() => {
+    setTeacherAlertSettings(loadTeacherTimetableAlertSettings(user?.id));
+    setNotificationPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+  }, [user?.id]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadWorkspace = async () => {
+      if (role !== ROLES.STAFF || !user?.id) {
+        setIsTeacherWorkspace(false);
+        return;
+      }
+
+      try {
+        const staff = await getStaffByUserId(user.id);
+        if (active) {
+          setIsTeacherWorkspace(normalizeStaffWorkspace(staff?.role) === STAFF_WORKSPACES.TEACHER);
+        }
+      } catch {
+        if (active) {
+          setIsTeacherWorkspace(false);
+        }
+      }
+    };
+
+    void loadWorkspace();
+
+    return () => {
+      active = false;
+    };
+  }, [role, user?.id]);
+
+  const updateTeacherAlertSettings = async (patch: Partial<TeacherTimetableAlertSettings>) => {
+    if (!user?.id) return;
+
+    const nextSettings = { ...teacherAlertSettings, ...patch };
+
+    if (patch.enabled) {
+      const permission = await requestBrowserNotificationPermission();
+      setNotificationPermission(permission);
+    }
+
+    setTeacherAlertSettings(nextSettings);
+    saveTeacherTimetableAlertSettings(user.id, nextSettings);
+  };
 
   const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -176,6 +238,57 @@ export const SettingsPage = () => {
           </div>
         </div>
       </Card>
+
+      {isTeacherWorkspace ? (
+        <Card>
+          <div className="flex flex-col gap-5">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Teacher Alerts</p>
+              <h2 className="mt-2 text-xl font-semibold text-slate-900">Real-time timetable reminders</h2>
+              <p className="mt-2 text-sm text-slate-500">
+                These alerts run only for teachers while the app is open and check your timetable every minute.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => void updateTeacherAlertSettings({ enabled: !teacherAlertSettings.enabled })}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:bg-slate-100"
+              >
+                <p className="text-sm font-semibold text-slate-900">Enable alerts</p>
+                <p className="mt-2 text-sm text-slate-500">
+                  {teacherAlertSettings.enabled ? "Teacher timetable alerts are active." : "Alerts are currently turned off."}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => void updateTeacherAlertSettings({ soundEnabled: !teacherAlertSettings.soundEnabled })}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:bg-slate-100"
+              >
+                <p className="text-sm font-semibold text-slate-900">Alarm sound</p>
+                <p className="mt-2 text-sm text-slate-500">
+                  {teacherAlertSettings.soundEnabled ? "Play an alarm sound with each alert." : "Notifications stay silent."}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => void updateTeacherAlertSettings({ preAlertEnabled: !teacherAlertSettings.preAlertEnabled })}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:bg-slate-100"
+              >
+                <p className="text-sm font-semibold text-slate-900">5-minute pre-alert</p>
+                <p className="mt-2 text-sm text-slate-500">
+                  {teacherAlertSettings.preAlertEnabled ? "Warn me 5 minutes before class ends." : "Only alert when class ends."}
+                </p>
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+              Notification permission: <span className="font-semibold text-slate-900">{notificationPermission}</span>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <div className="flex flex-col gap-5">

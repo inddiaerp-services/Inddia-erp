@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import MobileBottomNav from "./MobileBottomNav";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
+import TeacherTimetableAlerts from "./TeacherTimetableAlerts";
 
 export const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -26,6 +27,7 @@ export const DashboardLayout = () => {
 
   return (
     <div className="erp-shell-bg mobile-app-shell min-h-screen overflow-x-hidden text-slate-900">
+      <TeacherTimetableAlerts />
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="min-h-screen md:ml-[304px]">
         <Navbar onMenuClick={() => setSidebarOpen(true)} />
