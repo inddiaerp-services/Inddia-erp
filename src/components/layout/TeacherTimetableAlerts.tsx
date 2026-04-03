@@ -50,26 +50,27 @@ const playAlarmSound = async () => {
 
   try {
     const audioContext = new audioContextClass();
-    const pulse = (startAt: number) => {
+    const pulse = (startAt: number, frequency: number) => {
       const oscillator = audioContext.createOscillator();
       const gain = audioContext.createGain();
       oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(880, startAt);
+      oscillator.frequency.setValueAtTime(frequency, startAt);
       gain.gain.setValueAtTime(0.0001, startAt);
       gain.gain.exponentialRampToValueAtTime(0.2, startAt + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.35);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.42);
       oscillator.connect(gain);
       gain.connect(audioContext.destination);
       oscillator.start(startAt);
-      oscillator.stop(startAt + 0.35);
+      oscillator.stop(startAt + 0.42);
     };
 
     const base = audioContext.currentTime;
-    pulse(base);
-    pulse(base + 0.45);
+    for (let index = 0; index < 10; index += 1) {
+      pulse(base + index * 0.5, index % 2 === 0 ? 880 : 988);
+    }
     window.setTimeout(() => {
       void audioContext.close().catch(() => undefined);
-    }, 1200);
+    }, 5500);
   } catch {
     // Fail soft if the browser blocks audio playback.
   }
@@ -90,7 +91,13 @@ const showSystemNotification = async (title: string, body: string) => {
   }
 
   try {
-    new Notification(title, { body, tag: `teacher-timetable-${title}-${body}` });
+    new Notification(title, {
+      body,
+      tag: `teacher-timetable-${title}-${body}`,
+      requireInteraction: true,
+      renotify: true,
+      silent: true,
+    });
   } catch {
     // Ignore notification failures so the timer can continue running.
   }

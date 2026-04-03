@@ -130,6 +130,15 @@ const minutesToTime = (minutes: number) => {
   return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
 };
 
+const formatTimeTo12Hour = (value: string) => {
+  const [hoursText, minutesText] = value.split(":");
+  const hours = Number(hoursText ?? "0");
+  const minutes = minutesText ?? "00";
+  const normalizedHours = hours % 12 || 12;
+  const period = hours >= 12 ? "PM" : "AM";
+  return `${normalizedHours}:${minutes} ${period}`;
+};
+
 const addMinutesToTime = (value: string, minutes: number) => minutesToTime(timeToMinutes(value) + minutes);
 const getNextTeachingEndTime = (startTime: string, classDurationMinutes: number) => addMinutesToTime(startTime, classDurationMinutes);
 const uniqueByKey = <T,>(items: T[], getKey: (item: T) => string) =>
@@ -943,7 +952,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
 
           <div className="mt-5 flex flex-wrap gap-3 text-sm">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
-              School Hours: {timetableSettings.schoolStartTime} - {timetableSettings.schoolEndTime}
+              School Hours: {formatTimeTo12Hour(timetableSettings.schoolStartTime)} - {formatTimeTo12Hour(timetableSettings.schoolEndTime)}
             </span>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
               Class Duration: {timetableSettings.classDurationMinutes} min
@@ -1114,7 +1123,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
               {resolvedTimeRows.map((row) => (
                 <TimetableGridRow
                   key={`${row.start}-${row.end}`}
-                  timeLabel={`${row.start}-${row.end}`}
+                  timeLabel={`${formatTimeTo12Hour(row.start)}-${formatTimeTo12Hour(row.end)}`}
                   selectedDay={selectedDay}
                   dayCells={DAYS.map((day) => {
                     const myCell = mode === "my" ? getMyDisplayCell(day, row.start, row.end) : null;
@@ -1344,7 +1353,7 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
                 disabled={modal.mode === "view"}
               >
                 {timeOptions.slice(0, -1).map((time) => (
-                  <option key={time} value={time}>{time}</option>
+                  <option key={time} value={time}>{formatTimeTo12Hour(time)}</option>
                 ))}
               </select>
             </label>
@@ -1357,13 +1366,13 @@ const TimetableShell = ({ mode }: { mode: TimetableMode }) => {
                 disabled={modal.mode === "view"}
               >
                 {availableEndTimeOptions.map((time) => (
-                  <option key={time} value={time}>{time}</option>
+                  <option key={time} value={time}>{formatTimeTo12Hour(time)}</option>
                 ))}
               </select>
             </label>
             {!form.isBreak ? (
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 md:col-span-2">
-                Class periods stay fixed to {timetableSettings.classDurationMinutes} minutes, but their start time can move after a break. Example: if a break is `09:00-09:30`, the next class shifts automatically from that point.
+                Class periods stay fixed to {timetableSettings.classDurationMinutes} minutes, but their start time can move after a break. Example: if a break is `9:00 AM-9:30 AM`, the next class shifts automatically from that point.
               </div>
             ) : null}
           </div>
@@ -1480,7 +1489,7 @@ const TimetableGridRow = ({
               {impact.replacementTeacherName ?? slot.teacherName}
             </p>
             <p className="text-xs font-medium uppercase tracking-[0.16em] text-brand-700">
-              Rescheduled {impact.replacementStartTime ?? slot.startTime}-{impact.replacementEndTime ?? slot.endTime}
+              Rescheduled {formatTimeTo12Hour(impact.replacementStartTime ?? slot.startTime)}-{formatTimeTo12Hour(impact.replacementEndTime ?? slot.endTime)}
             </p>
             {mode === "my" ? (
               <p className="text-xs uppercase tracking-[0.18em] text-brand-700">
