@@ -3313,6 +3313,20 @@ const deleteSchool = async (payload, context) => {
     throw new Error("School id is required.");
   }
 
+  const { data: existingSchool, error: existingSchoolError } = await service
+    .from("schools")
+    .select("id")
+    .eq("id", schoolId)
+    .maybeSingle();
+
+  if (existingSchoolError) {
+    throw new Error(existingSchoolError.message);
+  }
+
+  if (!existingSchool) {
+    throw new Error("School not found.");
+  }
+
   await logSuperAdminAuditEvent(context, schoolId, "DELETE", "SUPERADMIN_SCHOOL", schoolId);
 
   const { data: schoolUsers, error: schoolUsersError } = await service
@@ -3326,14 +3340,12 @@ const deleteSchool = async (payload, context) => {
 
   await cleanupTable("audit_logs", "school_id", schoolId);
 
-  const { data: deletedSchool, error: schoolDeleteError } = await service
+  const { error: schoolDeleteError } = await service
     .from("schools")
     .delete()
-    .eq("id", schoolId)
-    .select("id")
-    .single();
+    .eq("id", schoolId);
 
-  if (schoolDeleteError || !deletedSchool) {
+  if (schoolDeleteError) {
     throw new Error(schoolDeleteError?.message ?? "Unable to delete school.");
   }
 
