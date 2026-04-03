@@ -499,10 +499,6 @@ export const StudentsPage = () => {
               </label>
             </div>
           </div>
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-            Required columns: `studentName`, `className`, `section`, `studentPassword`, `fatherName`, `fatherMobileNumber`, `fatherEmail`, `fatherPassword`.
-            Optional columns include `schoolId`, `admissionDate`, `gender`, `address`, `motherName`, and more.
-          </div>
         </Card>
       ) : null}
 
