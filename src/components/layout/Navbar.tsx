@@ -196,7 +196,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-100">Platform Owner</p>
               </div>
             </div>
-            <Button variant="secondary" onClick={handleLogout} className="hidden h-11 gap-2 rounded-[1.15rem] border border-white/10 bg-white/10 px-4 text-white shadow-sm hover:bg-white/15 sm:inline-flex">
+            <Button variant="secondary" onClick={handleLogout} className="inline-flex h-11 gap-2 rounded-[1.15rem] border border-white/10 bg-white/10 px-4 text-white shadow-sm hover:bg-white/15">
               <LogoutIcon />
               <span>Logout</span>
             </Button>
@@ -304,7 +304,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
             </div>
           </div>
 
-          <Button variant="outline" onClick={handleLogout} className="hidden h-11 gap-2 px-4 sm:inline-flex">
+          <Button variant="outline" onClick={handleLogout} className="inline-flex h-11 gap-2 px-4">
             <LogoutIcon />
             <span>Logout</span>
           </Button>
