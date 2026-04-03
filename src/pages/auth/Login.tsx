@@ -60,21 +60,20 @@ export const Login = () => {
               </p>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Access</p>
                 <p className="mt-2 text-lg font-semibold text-white">Private Login</p>
-                <p className="mt-2 text-sm text-slate-300">No public signup. Accounts are created by admin only.</p>
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  No public signup. Accounts are created by admin only.
+                </p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Users</p>
-                <p className="mt-2 text-lg font-semibold text-white">3 Roles</p>
-                <p className="mt-2 text-sm text-slate-300">Staff, students, and parents get tailored access.</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Security</p>
                 <p className="mt-2 text-lg font-semibold text-white">Protected</p>
-                <p className="mt-2 text-sm text-slate-300">Session-aware sign-in with role-based routing.</p>
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  Session-aware sign-in with role-based routing.
+                </p>
               </div>
             </div>
           </div>
@@ -105,7 +104,7 @@ export const Login = () => {
             <div className="grid gap-5">
               <Input
                 label="Email Address or Student ID"
-                placeholder="superadmin@gmail.com or SCHOOL-0001"
+                placeholder="Enter email or Student ID"
                 value={identifier}
                 onChange={(event) => setIdentifier(event.target.value)}
                 autoComplete="username"
@@ -121,11 +120,6 @@ export const Login = () => {
                 error={error}
                 required
               />
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              Super Admin, school admins, staff, and parents sign in with email. Students sign in with Student ID. Default super admin login:
-              <span className="font-semibold text-slate-800"> superadmin@gmail.com / admin123</span>
             </div>
 
             <Button type="submit" fullWidth disabled={submitting} className="min-h-12">
