@@ -647,16 +647,17 @@ export const StudentsPage = () => {
             <p className="text-xs uppercase tracking-[0.22em] text-brand-600">Other Information</p>
             <h3 className="mt-2 text-lg font-semibold text-slate-900">Personal and Academic Background</h3>
             <div className="mt-4 grid gap-5 md:grid-cols-2">
-              <Input
-                label="Date of Birth"
-                type="date"
-                value={form.dateOfBirth}
-                max={maxDateOfBirth}
-                error={dateOfBirthMessage}
-                onChange={(event) => handleChange("dateOfBirth", event.target.value)}
-                className="border-slate-200 bg-white text-slate-900"
-                errorClassName="text-amber-700"
-              />
+              <div className="space-y-2">
+                <Input
+                  label="Date of Birth"
+                  type="date"
+                  value={form.dateOfBirth}
+                  max={maxDateOfBirth}
+                  onChange={(event) => handleChange("dateOfBirth", event.target.value)}
+                  className="border-slate-200 bg-white text-slate-900"
+                />
+                <p className="text-sm text-amber-700">{dateOfBirthMessage}</p>
+              </div>
               <Input label="Student Birth ID / NIC" value={form.birthId} onChange={(event) => handleChange("birthId", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Orphan Student</span>
