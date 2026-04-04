@@ -13,6 +13,7 @@ import {
   deleteStaff,
   getSelectableSubjects,
   listStaff,
+  previewBulkImportStaff,
   staffRoleOptions,
   updateStaff,
 } from "../../services/adminService";
@@ -294,23 +295,31 @@ export const StaffPage = () => {
         throw new Error("The selected Excel sheet is empty.");
       }
 
-      let result = await bulkImportStaff(rows);
+      const preview = await previewBulkImportStaff(rows);
 
-      const duplicateFailures = result.results.filter(
-        (item) =>
-          !item.success &&
-          item.message.toLowerCase().includes("already exists"),
-      );
-
-      if (duplicateFailures.length > 0) {
-        const proceed = window.confirm(
-          `${duplicateFailures.length} imported staff email(s) already exist. Do you want to replace/update those existing staff accounts and continue?`,
+      if (preview.blockingCount > 0) {
+        const blockingEmails = preview.conflicts
+          .filter((item) => !item.replaceable)
+          .map((item) => item.email)
+          .join(", ");
+        throw new Error(
+          `These email addresses already belong to another active account and cannot be replaced: ${blockingEmails}.`,
         );
-
-        if (proceed) {
-          result = await bulkImportStaff(rows, { overwriteExisting: true });
-        }
       }
+
+      const overwriteExisting =
+        preview.replaceableCount > 0
+          ? window.confirm(
+              `${preview.replaceableCount} imported staff email(s) already exist. Do you want to replace/update those existing staff accounts and continue?`,
+            )
+          : false;
+
+      if (preview.replaceableCount > 0 && !overwriteExisting) {
+        setImportResult(null);
+        return;
+      }
+
+      const result = await bulkImportStaff(rows, { overwriteExisting });
 
       setImportResult(result);
       await loadData();

@@ -2113,6 +2113,16 @@ export const bulkImportStaff = async (
   return result;
 };
 
+export const previewBulkImportStaff = async (
+  rows: Record<string, unknown>[],
+): Promise<{
+  hasConflicts: boolean;
+  conflicts: Array<{ email: string; rows: number[]; replaceable: boolean }>;
+  replaceableCount: number;
+  blockingCount: number;
+}> =>
+  invokeAdminAction("preview_bulk_import_staff", { rows });
+
 export const deleteAllStaff = async () => {
   await invokeAdminAction<{ deleted: number }>("delete_all_staff", {});
   invalidateSchoolScopedCache(["staff", "classes"]);

@@ -2859,9 +2859,9 @@ const createStaff = async (payload, authHeader) => {
       const existingProfile = await findFirestoreUserById(existingAuthUser.uid);
 
       if (
-        !existingProfile ||
-        String(existingProfile.role ?? "").trim().toLowerCase() !== "staff" ||
-        String(existingProfile.school_id ?? "").trim() !== tenantSchoolId
+        existingProfile &&
+        (String(existingProfile.role ?? "").trim().toLowerCase() !== "staff" ||
+          String(existingProfile.school_id ?? "").trim() !== tenantSchoolId)
       ) {
         throw error;
       }
@@ -3081,6 +3081,70 @@ const bulkImportStaff = async (payload, authHeader) => {
   const created = results.filter((item) => item.success).length;
   const failed = results.length - created;
   return { created, failed, results };
+};
+
+const previewBulkImportStaff = async (payload, authHeader) => {
+  const { profile } = await getUserProfile(authHeader);
+  const tenantSchoolId = String(profile.school_id ?? "").trim();
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+
+  if (!tenantSchoolId) {
+    throw new Error("School context is missing for this staff import request.");
+  }
+
+  const normalizedRows = rows
+    .map((rawRow, index) => ({ index, row: normalizeImportRow(rawRow) }))
+    .filter(({ row }) => !isImportRowEmpty(row));
+
+  const emailEntries = normalizedRows
+    .map(({ index, row }) => ({
+      rowNumber: index + 2,
+      email: toImportText(getImportValue(row, ["email", "emailAddress", "email address", "mail"])).toLowerCase(),
+    }))
+    .filter((entry) => entry.email);
+
+  const uniqueEmails = [...new Set(emailEntries.map((entry) => entry.email))];
+  const conflicts = [];
+
+  for (const email of uniqueEmails) {
+    let authUser = null;
+    let existingProfile = null;
+
+    if (firebaseAdminAuth) {
+      try {
+        authUser = await firebaseAdminAuth.getUserByEmail(email);
+      } catch (error) {
+        const message = String(error?.message ?? "").toLowerCase();
+        if (!message.includes("no user record") && !message.includes("not found")) {
+          throw error;
+        }
+      }
+    }
+
+    existingProfile = firebaseAdminDb ? await findFirestoreUserByEmail(email) : null;
+
+    if (!authUser && !existingProfile) {
+      continue;
+    }
+
+    const replaceable =
+      !existingProfile ||
+      (String(existingProfile.role ?? "").trim().toLowerCase() === "staff" &&
+        String(existingProfile.school_id ?? "").trim() === tenantSchoolId);
+
+    conflicts.push({
+      email,
+      rows: emailEntries.filter((entry) => entry.email === email).map((entry) => entry.rowNumber),
+      replaceable,
+    });
+  }
+
+  return {
+    hasConflicts: conflicts.length > 0,
+    conflicts,
+    replaceableCount: conflicts.filter((item) => item.replaceable).length,
+    blockingCount: conflicts.filter((item) => !item.replaceable).length,
+  };
 };
 
 const updateStaff = async (payload, authHeader) => {
@@ -6731,6 +6795,7 @@ export const handleAdminApi = async (req, res) => {
       case "update_staff":
       case "delete_staff":
       case "bulk_import_staff":
+      case "preview_bulk_import_staff":
       case "list_staff_attendance":
       case "save_staff_attendance":
         await requireAdminOrWorkspace(authHeader, ["hr"]);
@@ -6801,6 +6866,9 @@ export const handleAdminApi = async (req, res) => {
         return true;
       case "bulk_import_staff":
         send(res, 200, { data: await bulkImportStaff(payload, authHeader) });
+        return true;
+      case "preview_bulk_import_staff":
+        send(res, 200, { data: await previewBulkImportStaff(payload, authHeader) });
         return true;
       case "create_class":
         send(res, 200, { data: await createClass(payload, authHeader) });
