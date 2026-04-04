@@ -868,6 +868,14 @@ const deleteFirestoreDocs = async (docs) => {
 
 const deleteFirestoreByField = async (collectionName, field, value) => {
   if (!firebaseAdminDb || value === null || value === undefined || value === "") return;
+  if (field === "id") {
+    const directRef = firebaseAdminDb.collection(collectionName).doc(String(value));
+    const directSnapshot = await directRef.get();
+    if (directSnapshot.exists) {
+      await directRef.delete();
+      return;
+    }
+  }
   const snapshot = await firebaseAdminDb.collection(collectionName).where(field, "==", value).get();
   await deleteFirestoreDocs(snapshot.docs);
 };
