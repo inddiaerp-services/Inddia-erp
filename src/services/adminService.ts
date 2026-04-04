@@ -1336,12 +1336,95 @@ const validateClassForm = (values: ClassFormValues) => {
   };
 };
 
+const ensureUniqueClassSection = async (
+  className: string,
+  section: string,
+  currentClassId?: string | null,
+) => {
+  const normalizedClassName = className.trim().toLowerCase();
+  const normalizedSection = section.trim().toLowerCase();
+  const existingClasses = await listClasses();
+  const duplicate = existingClasses.find(
+    (item) =>
+      item.id !== currentClassId &&
+      item.className.trim().toLowerCase() === normalizedClassName &&
+      item.section.trim().toLowerCase() === normalizedSection,
+  );
+
+  if (duplicate) {
+    throw new Error(`Class ${className} - ${section} already exists.`);
+  }
+};
+
 const syncClassCoordinator = async (
   className: string,
   section: string,
   coordinatorId: string | null,
   previousAssignment?: { className: string; section: string } | null,
 ) => {
+  if (firebaseDb) {
+    const schoolId = requireCurrentSchoolId();
+    const staffRows = (await getFirestoreSchoolScopedDocs("staff", schoolId)).map((item) => ({
+      id: item.id,
+      row: mapFirebaseStaffRow(item.id, item.data),
+    }));
+
+    const updateStaffDoc = async (
+      staffId: string,
+      payload: Record<string, unknown>,
+    ) => {
+      try {
+        await firebaseUpdateDoc(firebaseDoc(firebaseDb, "staff", staffId), payload);
+      } catch (error) {
+        if (!isFirebasePermissionError(error)) {
+          throw error;
+        }
+        await setFirestoreDocumentThroughServer("staff", staffId, payload, { schoolId, merge: true });
+      }
+    };
+
+    const clearAssignmentsForClass = async (targetClassName: string, targetSection: string) => {
+      const matchingStaff = staffRows.filter(
+        (item) => item.row.assigned_class === targetClassName && item.row.assigned_section === targetSection,
+      );
+
+      await Promise.all(
+        matchingStaff.map((item) =>
+          updateStaffDoc(item.id, {
+            isClassCoordinator: false,
+            assignedClass: null,
+            assignedSection: null,
+          }),
+        ),
+      );
+    };
+
+    if (
+      previousAssignment &&
+      (previousAssignment.className !== className || previousAssignment.section !== section)
+    ) {
+      await clearAssignmentsForClass(previousAssignment.className, previousAssignment.section);
+    }
+
+    await clearAssignmentsForClass(className, section);
+
+    if (!coordinatorId) {
+      return;
+    }
+
+    const coordinator = staffRows.find((item) => item.id === coordinatorId);
+    if (!coordinator || coordinator.row.role !== "Teacher") {
+      throw new Error("Selected class coordinator must be an existing teacher.");
+    }
+
+    await updateStaffDoc(coordinatorId, {
+      isClassCoordinator: true,
+      assignedClass: className,
+      assignedSection: section,
+    });
+    return;
+  }
+
   const client = requireDatabaseClient();
 
   if (
@@ -1507,6 +1590,7 @@ export const getClassDetail = async (classId: string): Promise<ClassDetail> => {
 export const createClass = async (values: ClassFormValues) =>
   (async () => {
     const payload = validateClassForm(values);
+    await ensureUniqueClassSection(payload.className, payload.section);
     const classRecord = await invokeAdminAction<ClassRecord>("create_class", values);
 
     await syncClassCoordinator(payload.className, payload.section, payload.coordinatorId);
@@ -1521,6 +1605,7 @@ export const updateClass = async (classId: string, values: ClassFormValues) =>
     const client = requireDatabaseClient();
     const current = await getClassDetail(classId);
     const payload = validateClassForm(values);
+    await ensureUniqueClassSection(payload.className, payload.section, classId);
     await invokeAdminAction<ClassRecord>("update_class", { id: classId, ...values });
 
     const classChanged =

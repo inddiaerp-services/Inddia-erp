@@ -3313,6 +3313,21 @@ const createClass = async (payload, authHeader) => {
   if (!className) throw new Error("Class name is required.");
   if (!section) throw new Error("Section is required.");
 
+  if (firebaseAdminDb) {
+    const classDocs = await getFirestoreSchoolScopedDocs("classes", schoolId);
+    const duplicate = classDocs.find((doc) => {
+      const data = doc.data() ?? {};
+      return (
+        String(getFirestoreString(data, ["className", "class_name"]) ?? "").trim().toLowerCase() === className.toLowerCase() &&
+        String(getFirestoreString(data, ["section"]) ?? "").trim().toLowerCase() === section.toLowerCase()
+      );
+    });
+
+    if (duplicate) {
+      throw new Error(`Class ${className} - ${section} already exists.`);
+    }
+  }
+
   let capacity = null;
   if (capacityValue) {
     capacity = Number(capacityValue);
@@ -3387,6 +3402,22 @@ const updateClass = async (payload, authHeader) => {
   if (!id) throw new Error("Class id is required.");
   if (!className) throw new Error("Class name is required.");
   if (!section) throw new Error("Section is required.");
+
+  if (firebaseAdminDb) {
+    const classDocs = await getFirestoreSchoolScopedDocs("classes", schoolId);
+    const duplicate = classDocs.find((doc) => {
+      if (doc.id === id) return false;
+      const data = doc.data() ?? {};
+      return (
+        String(getFirestoreString(data, ["className", "class_name"]) ?? "").trim().toLowerCase() === className.toLowerCase() &&
+        String(getFirestoreString(data, ["section"]) ?? "").trim().toLowerCase() === section.toLowerCase()
+      );
+    });
+
+    if (duplicate) {
+      throw new Error(`Class ${className} - ${section} already exists.`);
+    }
+  }
 
   let capacity = null;
   if (capacityValue) {
