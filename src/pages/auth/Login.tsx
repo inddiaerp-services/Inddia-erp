@@ -26,6 +26,9 @@ export const Login = () => {
 
     try {
       const result = await loginWithIdentifier(identifier, password);
+      if (!result.user) {
+        throw new Error("Unable to sign in. User profile was not returned.");
+      }
       setAuth(result);
       navigate(result.user.role === ROLES.SUPER_ADMIN ? "/super-admin/dashboard" : "/dashboard/home", { replace: true });
     } catch (submissionError) {

@@ -18,6 +18,7 @@ export type StaffRecord = {
   assignedClass: string | null;
   assignedSection: string | null;
   isClassCoordinator: boolean;
+  createdAt?: string | null;
 };
 
 export type HolidayRecord = {
@@ -65,6 +66,7 @@ export type StudentRecord = {
   name: string;
   photoUrl: string | null;
   schoolId: string | null;
+  studentCode?: string | null;
   className: string | null;
   section: string | null;
   admissionDate: string | null;
@@ -102,6 +104,7 @@ export type StudentRecord = {
   motherMobileNumber: string | null;
   motherProfession: string | null;
   motherIncome: number | null;
+  createdAt?: string | null;
 };
 
 export type SubjectFormValues = {

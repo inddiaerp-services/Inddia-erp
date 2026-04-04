@@ -420,7 +420,7 @@ export const loginStaff = async (email: string, password: string) => {
 
   const result = await signInAndResolve(trimmedEmail, password);
 
-  if (![ROLES.ADMIN, ROLES.STAFF, ROLES.SUPER_ADMIN].includes(result.role)) {
+  if (!result.role || ![ROLES.ADMIN, ROLES.STAFF, ROLES.SUPER_ADMIN].includes(result.role)) {
     throw new Error("This account is not configured as a staff login.");
   }
 
