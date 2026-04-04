@@ -742,6 +742,10 @@ const getFirestoreSchoolScopedCount = async (collectionName: string, schoolId: s
     return 0;
   }
 };
+
+const getFirestoreDocument = async (collectionName: string, id: string) => {
+  if (!firebaseDb) return null;
+
   try {
     const snapshot = await firebaseGetDoc(firebaseDoc(firebaseDb, collectionName, id));
     if (!snapshot.exists()) return null;
