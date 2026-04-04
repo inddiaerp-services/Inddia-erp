@@ -6147,13 +6147,25 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
     ]);
 
     // For recent activity, fetch limited data
-    const [students, staff] = await Promise.all([
-      firebaseGetDocs(firebaseQuery(firebaseCollection(firebaseDb, "students"), firebaseWhere("schoolId", "==", schoolId), limit(3))),
-      firebaseGetDocs(firebaseQuery(firebaseCollection(firebaseDb, "staff"), firebaseWhere("schoolId", "==", schoolId), limit(3))),
-    ]);
+    let studentDocs: any[] = [];
+    let staffDocs: any[] = [];
 
-    const studentRecords = students.docs.map((item) => mapFirebaseStudentRow(item.id, item.data() as Record<string, unknown>));
-    const staffRecords = staff.docs.map((item) => mapFirebaseStaffRow(item.id, item.data() as Record<string, unknown>));
+    try {
+      const [studentsSnapshot, staffSnapshot] = await Promise.all([
+        firebaseGetDocs(firebaseQuery(firebaseCollection(firebaseDb, "students"), firebaseWhere("schoolId", "==", schoolId), limit(3))),
+        firebaseGetDocs(firebaseQuery(firebaseCollection(firebaseDb, "staff"), firebaseWhere("schoolId", "==", schoolId), limit(3))),
+      ]);
+      studentDocs = studentsSnapshot.docs;
+      staffDocs = staffSnapshot.docs;
+    } catch (error) {
+      if (!isFirebasePermissionError(error)) {
+        throw error;
+      }
+      // If permissions are denied, studentDocs and staffDocs remain empty arrays
+    }
+
+    const studentRecords = studentDocs.map((item) => mapFirebaseStudentRow(item.id, item.data() as Record<string, unknown>));
+    const staffRecords = staffDocs.map((item) => mapFirebaseStaffRow(item.id, item.data() as Record<string, unknown>));
 
     const stats: DashboardMetric[] = [
       {

@@ -193,6 +193,18 @@ const fetchAuthContextFromServer = async (accessToken: string) => {
   return result.data;
 };
 
+const isFirebasePermissionError = (error: unknown) => {
+  const message = String((error as { message?: string } | null)?.message ?? error ?? "").toLowerCase();
+  const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
+  return (
+    message.includes("missing or insufficient permissions") ||
+    message.includes("permission-denied") ||
+    code.includes("permission-denied") ||
+    message.includes("resource_exhausted") ||
+    message.includes("quota exceeded")
+  );
+};
+
 const mapFirebaseSession = (user: FirebaseUser, tokenResult: Awaited<ReturnType<typeof getIdTokenResult>>): AppSession => {
   return {
     accessToken: tokenResult.token,
@@ -244,15 +256,22 @@ const fetchSchoolProfile = async (schoolId: string | null | undefined): Promise<
   }
 
   const request = (async () => {
-    const snapshot = await getDoc(doc(firebaseDb, "schools", cacheKey));
-    if (!snapshot.exists()) {
-      return createSchoolFallback(cacheKey);
-    }
+    try {
+      const snapshot = await getDoc(doc(firebaseDb, "schools", cacheKey));
+      if (!snapshot.exists()) {
+        return createSchoolFallback(cacheKey);
+      }
 
-    return mapSchool({
-      id: snapshot.id,
-      ...(snapshot.data() as Omit<SchoolRow, "id">),
-    });
+      return mapSchool({
+        id: snapshot.id,
+        ...(snapshot.data() as Omit<SchoolRow, "id">),
+      });
+    } catch (error) {
+      if (isFirebasePermissionError(error)) {
+        return createSchoolFallback(cacheKey);
+      }
+      throw error;
+    }
   })().catch((error) => {
     schoolProfileCache.delete(cacheKey);
     throw error;
@@ -272,15 +291,22 @@ const fetchUserProfile = async (userId: string): Promise<AuthUser> => {
   }
 
   const request = (async () => {
-    const snapshot = await getDoc(doc(firebaseDb, "users", cacheKey));
-    if (!snapshot.exists()) {
-      throw new Error("Unable to load the user profile.");
-    }
+    try {
+      const snapshot = await getDoc(doc(firebaseDb, "users", cacheKey));
+      if (!snapshot.exists()) {
+        throw new Error("Unable to load the user profile.");
+      }
 
-    return mapUser({
-      id: snapshot.id,
-      ...(snapshot.data() as Omit<UsersRow, "id">),
-    });
+      return mapUser({
+        id: snapshot.id,
+        ...(snapshot.data() as Omit<UsersRow, "id">),
+      });
+    } catch (error) {
+      if (isFirebasePermissionError(error)) {
+        throw new Error("Access denied to user profile. Contact administrator.");
+      }
+      throw error;
+    }
   })().catch((error) => {
     userProfileCache.delete(cacheKey);
     throw error;
