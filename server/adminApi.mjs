@@ -3326,6 +3326,17 @@ const createClass = async (payload, authHeader) => {
     if (duplicate) {
       throw new Error(`Class ${className} - ${section} already exists.`);
     }
+
+    if (roomNumber) {
+      const duplicateRoom = classDocs.find((doc) => {
+        const data = doc.data() ?? {};
+        return String(getFirestoreString(data, ["roomNumber", "room_number"]) ?? "").trim().toLowerCase() === roomNumber.toLowerCase();
+      });
+
+      if (duplicateRoom) {
+        throw new Error(`Room number ${roomNumber} is already assigned to another class.`);
+      }
+    }
   }
 
   let capacity = null;
@@ -3416,6 +3427,18 @@ const updateClass = async (payload, authHeader) => {
 
     if (duplicate) {
       throw new Error(`Class ${className} - ${section} already exists.`);
+    }
+
+    if (roomNumber) {
+      const duplicateRoom = classDocs.find((doc) => {
+        if (doc.id === id) return false;
+        const data = doc.data() ?? {};
+        return String(getFirestoreString(data, ["roomNumber", "room_number"]) ?? "").trim().toLowerCase() === roomNumber.toLowerCase();
+      });
+
+      if (duplicateRoom) {
+        throw new Error(`Room number ${roomNumber} is already assigned to another class.`);
+      }
     }
   }
 

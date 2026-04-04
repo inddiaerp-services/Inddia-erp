@@ -98,6 +98,55 @@ export const ClassesPage = () => {
     setSaving(true);
     setFormError("");
     try {
+      const normalizedClassName = form.className.trim().toLowerCase();
+      const normalizedSection = form.section.trim().toLowerCase();
+      const normalizedRoomNumber = form.roomNumber.trim().toLowerCase();
+      const currentClassId = modal.classRecord?.id ?? null;
+
+      const duplicateClass = classes.find(
+        (item) =>
+          item.id !== currentClassId &&
+          item.className.trim().toLowerCase() === normalizedClassName &&
+          item.section.trim().toLowerCase() === normalizedSection,
+      );
+
+      if (duplicateClass) {
+        throw new Error(`Class ${form.className.trim()} - ${form.section.trim()} already exists.`);
+      }
+
+      if (normalizedRoomNumber) {
+        const duplicateRoom = classes.find(
+          (item) =>
+            item.id !== currentClassId &&
+            String(item.roomNumber ?? "").trim().toLowerCase() === normalizedRoomNumber,
+        );
+
+        if (duplicateRoom) {
+          throw new Error(`Room number ${form.roomNumber.trim()} is already assigned to another class.`);
+        }
+      }
+
+      const selectedCoordinator = form.coordinatorId
+        ? teachers.find((teacher) => teacher.id === form.coordinatorId) ?? null
+        : null;
+
+      if (
+        selectedCoordinator &&
+        selectedCoordinator.assignedClass &&
+        selectedCoordinator.assignedSection &&
+        (selectedCoordinator.assignedClass !== form.className.trim() ||
+          selectedCoordinator.assignedSection !== form.section.trim())
+      ) {
+        const proceed = window.confirm(
+          `${selectedCoordinator.name} is already assigned as coordinator for ${selectedCoordinator.assignedClass} - ${selectedCoordinator.assignedSection}. Do you want to move this teacher to ${form.className.trim()} - ${form.section.trim()}?`,
+        );
+
+        if (!proceed) {
+          setSaving(false);
+          return;
+        }
+      }
+
       if (modal.mode === "create") {
         await createClass(form);
       } else if (modal.classRecord) {

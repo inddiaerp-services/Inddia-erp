@@ -643,8 +643,12 @@ const isFirebasePermissionError = (error: unknown) => {
   const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
   return (
     message.includes("missing or insufficient permissions") ||
+    message.includes("resource_exhausted") ||
+    message.includes("quota exceeded") ||
+    message.includes("quota-exceeded") ||
     message.includes("permission-denied") ||
-    code.includes("permission-denied")
+    code.includes("permission-denied") ||
+    code.includes("resource-exhausted")
   );
 };
 
@@ -1356,6 +1360,27 @@ const ensureUniqueClassSection = async (
   }
 };
 
+const ensureUniqueRoomNumber = async (
+  roomNumber: string | null,
+  currentClassId?: string | null,
+) => {
+  const normalizedRoomNumber = String(roomNumber ?? "").trim().toLowerCase();
+  if (!normalizedRoomNumber) {
+    return;
+  }
+
+  const existingClasses = await listClasses();
+  const duplicate = existingClasses.find(
+    (item) =>
+      item.id !== currentClassId &&
+      String(item.roomNumber ?? "").trim().toLowerCase() === normalizedRoomNumber,
+  );
+
+  if (duplicate) {
+    throw new Error(`Room number ${roomNumber} is already assigned to another class.`);
+  }
+};
+
 const syncClassCoordinator = async (
   className: string,
   section: string,
@@ -1592,6 +1617,7 @@ export const createClass = async (values: ClassFormValues) =>
   (async () => {
     const payload = validateClassForm(values);
     await ensureUniqueClassSection(payload.className, payload.section);
+    await ensureUniqueRoomNumber(payload.roomNumber);
     const classRecord = await invokeAdminAction<ClassRecord>("create_class", values);
 
     await syncClassCoordinator(payload.className, payload.section, payload.coordinatorId);
@@ -1607,6 +1633,7 @@ export const updateClass = async (classId: string, values: ClassFormValues) =>
     const current = await getClassDetail(classId);
     const payload = validateClassForm(values);
     await ensureUniqueClassSection(payload.className, payload.section, classId);
+    await ensureUniqueRoomNumber(payload.roomNumber, classId);
     await invokeAdminAction<ClassRecord>("update_class", { id: classId, ...values });
 
     const classChanged =
