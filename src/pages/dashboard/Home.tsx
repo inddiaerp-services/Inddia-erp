@@ -34,6 +34,9 @@ import {
   listTimetableSlots,
   listTransportRoutes,
   listVehicles,
+  getStudentsCount,
+  getStaffCount,
+  getClassesCount,
 } from "../../services/adminService";
 import { ROLES } from "../../config/roles";
 import { normalizeStaffWorkspace, STAFF_WORKSPACES } from "../../config/staffWorkspaces";
@@ -129,18 +132,18 @@ export const DashboardHome = () => {
           const workspace = normalizeStaffWorkspace(staff.role);
 
           if (isFirebaseOnlyMode) {
-            const [students, staffRows, classes] = await Promise.all([listStudents(), listStaff(), listClasses()]);
+            const [studentsCount, staffCount, classesCount] = await Promise.all([getStudentsCount(), getStaffCount(), getClassesCount()]);
             setStats([
               { label: "Workspace", value: workspace === STAFF_WORKSPACES.TEACHER ? "Teacher" : workspace, detail: "Firebase workspace mode", path: "/dashboard/profile" },
-              { label: "Students", value: String(students.length), detail: "Students available in this school", path: "/dashboard/students" },
-              { label: "Staff", value: String(staffRows.length), detail: "Team members available in this school", path: "/dashboard/staff" },
-              { label: "Classes", value: String(classes.length), detail: "Classes available in this school", path: "/dashboard/classes" },
+              { label: "Students", value: String(studentsCount), detail: "Students available in this school", path: "/dashboard/students" },
+              { label: "Staff", value: String(staffCount), detail: "Team members available in this school", path: "/dashboard/staff" },
+              { label: "Classes", value: String(classesCount), detail: "Classes available in this school", path: "/dashboard/classes" },
             ]);
             setRecentActivity([
               { module: "Workspace", owner: staff.name, status: staff.role || "Staff", time: "Firebase mode" },
-              { module: "Students", owner: `${students.length} records`, status: "Available", time: "/dashboard/students" },
-              { module: "Staff", owner: `${staffRows.length} records`, status: "Available", time: "/dashboard/staff" },
-              { module: "Classes", owner: `${classes.length} records`, status: "Available", time: "/dashboard/classes" },
+              { module: "Students", owner: `${studentsCount} records`, status: "Available", time: "/dashboard/students" },
+              { module: "Staff", owner: `${staffCount} records`, status: "Available", time: "/dashboard/staff" },
+              { module: "Classes", owner: `${classesCount} records`, status: "Available", time: "/dashboard/classes" },
             ]);
             setError("");
             setLoading(false);

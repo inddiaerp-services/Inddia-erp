@@ -8,8 +8,10 @@ import {
   collection as firebaseCollection,
   deleteDoc as firebaseDeleteDoc,
   doc as firebaseDoc,
+  getCountFromServer,
   getDoc as firebaseGetDoc,
   getDocs as firebaseGetDocs,
+  limit,
   query as firebaseQuery,
   setDoc as firebaseSetDoc,
   updateDoc as firebaseUpdateDoc,
@@ -724,8 +726,22 @@ const getFirestoreSchoolScopedDocs = async (collectionName: string, schoolId: st
   }
 };
 
-const getFirestoreDoc = async (collectionName: string, id: string) => {
-  if (!firebaseDb) return null;
+const getFirestoreSchoolScopedCount = async (collectionName: string, schoolId: string) => {
+  if (!firebaseDb) return 0;
+
+  try {
+    const q = firebaseQuery(firebaseCollection(firebaseDb, collectionName), firebaseWhere("schoolId", "==", schoolId));
+    const snapshot = await getCountFromServer(q);
+    return snapshot.data().count;
+  } catch (error) {
+    if (!isFirebasePermissionError(error)) {
+      throw error;
+    }
+
+    // Fallback to server or estimate
+    return 0;
+  }
+};
   try {
     const snapshot = await firebaseGetDoc(firebaseDoc(firebaseDb, collectionName, id));
     if (!snapshot.exists()) return null;
@@ -1555,6 +1571,23 @@ export const listClasses = async (): Promise<ClassRecord[]> => {
   });
 };
 
+export const getClassesCount = async (): Promise<number> => {
+  if (firebaseDb) {
+    const schoolId = requireCurrentSchoolId();
+    return getFirestoreSchoolScopedCount("classes", schoolId);
+  }
+
+  const client = requireDatabaseClient();
+  const schoolId = requireCurrentSchoolId();
+  const { count, error } = await client
+    .from("classes")
+    .select("*", { count: "exact", head: true })
+    .eq("school_id", schoolId);
+
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+};
+
 export const getClassDetail = async (classId: string): Promise<ClassDetail> => {
   if (firebaseDb) {
     const snapshot = await getFirestoreDoc("classes", classId);
@@ -2180,6 +2213,23 @@ export const listStaff = async (): Promise<StaffRecord[]> => {
   });
 };
 
+export const getStaffCount = async (): Promise<number> => {
+  if (firebaseDb) {
+    const schoolId = requireCurrentSchoolId();
+    return getFirestoreSchoolScopedCount("staff", schoolId);
+  }
+
+  const client = requireDatabaseClient();
+  const schoolId = requireCurrentSchoolId();
+  const { count, error } = await client
+    .from("staff")
+    .select("*", { count: "exact", head: true })
+    .eq("school_id", schoolId);
+
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+};
+
 export const getStaffDetail = async (staffId: string) => {
   if (firebaseDb) {
     const snapshot = await getFirestoreDoc("staff", staffId);
@@ -2389,6 +2439,23 @@ export const listStudents = async (): Promise<StudentRecord[]> => {
       ),
     );
   });
+};
+
+export const getStudentsCount = async (): Promise<number> => {
+  if (firebaseDb) {
+    const schoolId = requireCurrentSchoolId();
+    return getFirestoreSchoolScopedCount("students", schoolId);
+  }
+
+  const client = requireDatabaseClient();
+  const schoolId = requireCurrentSchoolId();
+  const { count, error } = await client
+    .from("students")
+    .select("*", { count: "exact", head: true })
+    .eq("school_id", schoolId);
+
+  if (error) throw new Error(error.message);
+  return count ?? 0;
 };
 
 export const getStudentByUserId = async (userId: string) => {
@@ -6066,24 +6133,38 @@ const formatActivityTime = (value: string | null | undefined) => {
 
 export const getDashboardOverview = async (): Promise<DashboardOverview> => {
   if (firebaseDb && !databaseClient) {
-    const [students, staff, classes] = await Promise.all([listStudents(), listStaff(), listClasses()]);
+    const schoolId = requireCurrentSchoolId();
+    const [studentsCount, staffCount, classesCount] = await Promise.all([
+      getFirestoreSchoolScopedCount("students", schoolId),
+      getFirestoreSchoolScopedCount("staff", schoolId),
+      getFirestoreSchoolScopedCount("classes", schoolId),
+    ]);
+
+    // For recent activity, fetch limited data
+    const [students, staff] = await Promise.all([
+      firebaseGetDocs(firebaseQuery(firebaseCollection(firebaseDb, "students"), firebaseWhere("schoolId", "==", schoolId), limit(3))),
+      firebaseGetDocs(firebaseQuery(firebaseCollection(firebaseDb, "staff"), firebaseWhere("schoolId", "==", schoolId), limit(3))),
+    ]);
+
+    const studentRecords = students.docs.map((item) => mapFirebaseStudentRow(item.id, item.data));
+    const staffRecords = staff.docs.map((item) => mapFirebaseStaffRow(item.id, item.data));
 
     const stats: DashboardMetric[] = [
       {
         label: "Total Students",
-        value: String(students.length),
+        value: String(studentsCount),
         detail: "Across all active classes",
         path: "/dashboard/students",
       },
       {
         label: "Total Teachers",
-        value: String(staff.length),
+        value: String(staffCount),
         detail: "Teaching faculty and coordinators",
         path: "/dashboard/staff",
       },
       {
         label: "Total Classes",
-        value: String(classes.length),
+        value: String(classesCount),
         detail: "Mapped across sections and streams",
         path: "/dashboard/classes",
       },
@@ -6096,13 +6177,13 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
     ];
 
     const recentActivity: DashboardActivity[] = [
-      ...students.slice(0, 3).map((student) => ({
+      ...studentRecords.map((student) => ({
         module: "Students",
         owner: student.name,
         status: "Available",
         time: student.createdAt ? formatActivityTime(student.createdAt) : "-",
       })),
-      ...staff.slice(0, 3).map((member) => ({
+      ...staffRecords.map((member) => ({
         module: "Staff",
         owner: member.name,
         status: member.role || "Staff",
