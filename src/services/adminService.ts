@@ -1469,6 +1469,12 @@ export const bulkImportStaff = async (rows: Record<string, unknown>[]): Promise<
   return result;
 };
 
+export const deleteAllStaff = async () => {
+  await invokeAdminAction<{ deleted: number }>("delete_all_staff", {});
+  invalidateSchoolScopedCache(["staff", "classes"]);
+  await logAuditEvent("DELETE", "STAFF_BULK_DELETE");
+};
+
 export const updateStaff = async (staffId: string, userId: string, values: StaffFormValues) => {
   const staff = await invokeAdminAction<StaffRecord>("update_staff", { id: staffId, userId, ...values });
   invalidateSchoolScopedCache(["staff", "classes"]);
@@ -1624,6 +1630,12 @@ export const bulkImportStudents = async (rows: Record<string, unknown>[]): Promi
   const result = await invokeAdminAction<BulkImportResult>("bulk_import_students", { rows });
   invalidateSchoolScopedCache(["students", "classes"]);
   return result;
+};
+
+export const deleteAllStudents = async () => {
+  await invokeAdminAction<{ deleted: number }>("delete_all_students", {});
+  invalidateSchoolScopedCache(["students", "classes"]);
+  await logAuditEvent("DELETE", "STUDENT_BULK_DELETE");
 };
 
 export const updateStudent = async (

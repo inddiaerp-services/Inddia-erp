@@ -2094,6 +2094,62 @@ const deleteStaff = async (payload) => {
   return null;
 };
 
+const deleteAllStaff = async (_payload, authHeader) => {
+  const context = await getUserProfile(authHeader);
+  const schoolId = await ensureTenantSchoolExists(context);
+
+  const { data: staffRows, error: staffError } = await service
+    .from("staff")
+    .select("id, user_id")
+    .eq("school_id", schoolId);
+
+  if (staffError) throw new Error(staffError.message);
+
+  const rows = staffRows ?? [];
+  for (const row of rows) {
+    await cleanupStaffDependencies(row.id);
+  }
+
+  const userIds = rows.map((row) => String(row.user_id ?? "").trim()).filter(Boolean);
+  const staffIds = rows.map((row) => String(row.id ?? "").trim()).filter(Boolean);
+
+  if (staffIds.length > 0) {
+    const { error: notificationsError } = await service
+      .from("notifications")
+      .delete()
+      .in("receiver_id", staffIds);
+    if (notificationsError) throw new Error(notificationsError.message);
+
+    const { error: adjustmentsError } = await service
+      .from("timetable_adjustments")
+      .delete()
+      .in("replacement_teacher_id", staffIds);
+    if (adjustmentsError) throw new Error(adjustmentsError.message);
+  }
+
+  const { error: staffDeleteError } = await service.from("staff").delete().eq("school_id", schoolId);
+  if (staffDeleteError) throw new Error(staffDeleteError.message);
+
+  if (userIds.length > 0) {
+    const { error: userDeleteError } = await service.from("users").delete().in("id", userIds);
+    if (userDeleteError) throw new Error(userDeleteError.message);
+
+    for (const userId of userIds) {
+      await cleanupUser(userId);
+    }
+  }
+
+  await insertAuditLog({
+    schoolId,
+    userId: context.profile.id ?? context.user.id,
+    action: "DELETE",
+    module: "STAFF_BULK_DELETE",
+    recordId: null,
+  });
+
+  return { deleted: rows.length };
+};
+
 const createStudentBundle = async (payload, authHeader) => {
   const { profile } = await getUserProfile(authHeader);
   const tenantSchoolId = String(profile.school_id ?? "").trim();
@@ -4439,6 +4495,58 @@ const deleteStudentBundle = async (payload) => {
   return null;
 };
 
+const deleteAllStudents = async (_payload, authHeader) => {
+  const context = await getUserProfile(authHeader);
+  const schoolId = await ensureTenantSchoolExists(context);
+
+  const { data: studentRows, error: studentError } = await service
+    .from("students")
+    .select("id, user_id, parent_id")
+    .eq("school_id", schoolId);
+  if (studentError) throw new Error(studentError.message);
+
+  const students = studentRows ?? [];
+  const studentUserIds = students.map((row) => String(row.user_id ?? "").trim()).filter(Boolean);
+  const parentIds = Array.from(new Set(students.map((row) => String(row.parent_id ?? "").trim()).filter(Boolean)));
+
+  const { error: studentDeleteError } = await service.from("students").delete().eq("school_id", schoolId);
+  if (studentDeleteError) throw new Error(studentDeleteError.message);
+
+  let parentUserIds = [];
+  if (parentIds.length > 0) {
+    const { data: parentRows, error: parentError } = await service
+      .from("parents")
+      .select("id, user_id")
+      .in("id", parentIds);
+    if (parentError) throw new Error(parentError.message);
+
+    parentUserIds = (parentRows ?? []).map((row) => String(row.user_id ?? "").trim()).filter(Boolean);
+
+    const { error: parentDeleteError } = await service.from("parents").delete().in("id", parentIds);
+    if (parentDeleteError) throw new Error(parentDeleteError.message);
+  }
+
+  const allUserIds = Array.from(new Set([...studentUserIds, ...parentUserIds])).filter(Boolean);
+  if (allUserIds.length > 0) {
+    const { error: userDeleteError } = await service.from("users").delete().in("id", allUserIds);
+    if (userDeleteError) throw new Error(userDeleteError.message);
+
+    for (const userId of allUserIds) {
+      await cleanupUser(userId);
+    }
+  }
+
+  await insertAuditLog({
+    schoolId,
+    userId: context.profile.id ?? context.user.id,
+    action: "DELETE",
+    module: "STUDENT_BULK_DELETE",
+    recordId: null,
+  });
+
+  return { deleted: students.length };
+};
+
 export const handleAdminApi = async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, corsHeaders);
@@ -4472,6 +4580,8 @@ export const handleAdminApi = async (req, res) => {
       case "create_class":
       case "update_class":
       case "delete_class":
+      case "delete_all_staff":
+      case "delete_all_students":
         await requireAdmin(authHeader);
         break;
       case "create_student_bundle":
@@ -4540,6 +4650,9 @@ export const handleAdminApi = async (req, res) => {
       case "delete_staff":
         send(res, 200, { data: await deleteStaff(payload) });
         return true;
+      case "delete_all_staff":
+        send(res, 200, { data: await deleteAllStaff(payload, authHeader) });
+        return true;
       case "save_staff_attendance":
         send(res, 200, { data: await saveStaffAttendance(payload, authHeader) });
         return true;
@@ -4560,6 +4673,9 @@ export const handleAdminApi = async (req, res) => {
         return true;
       case "delete_student_bundle":
         send(res, 200, { data: await deleteStudentBundle(payload) });
+        return true;
+      case "delete_all_students":
+        send(res, 200, { data: await deleteAllStudents(payload, authHeader) });
         return true;
       case "create_school_bundle":
         send(res, 200, { data: await createSchoolBundle(payload, await requireSuperAdmin(authHeader)) });

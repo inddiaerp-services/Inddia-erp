@@ -9,6 +9,7 @@ import { AdminPageHeader, CompactMetricCard } from "./adminPageUtils";
 import {
   bulkImportStaff,
   createStaff,
+  deleteAllStaff,
   deleteStaff,
   getSelectableSubjects,
   listStaff,
@@ -17,6 +18,8 @@ import {
 } from "../../services/adminService";
 import type { BulkImportResult, StaffFormValues, StaffRecord, SubjectRecord } from "../../types/admin";
 import { prepareProfileImage } from "../../utils/profileImage";
+import { authStore } from "../../store/authStore";
+import { ROLES } from "../../config/roles";
 
 const emptyForm: StaffFormValues = {
   name: "",
@@ -64,12 +67,14 @@ const CoordinatorIcon = () => (
 );
 
 export const StaffPage = () => {
+  const { role } = authStore();
   const [staff, setStaff] = useState<StaffRecord[]>([]);
   const [subjects, setSubjects] = useState<SubjectRecord[]>([]);
   const [form, setForm] = useState<StaffFormValues>(emptyForm);
   const [modal, setModal] = useState<ModalState>({ open: false, mode: "create", staff: null });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [processingPhoto, setProcessingPhoto] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
@@ -90,6 +95,7 @@ export const StaffPage = () => {
   const requiresSubject = form.role === "Teacher";
   const totalTeachers = staff.filter((member) => member.role === "Teacher").length;
   const totalCoordinators = staff.filter((member) => member.isClassCoordinator).length;
+  const canDeleteAllStaff = role === ROLES.ADMIN;
 
   const loadData = async () => {
     setLoading(true);
@@ -215,6 +221,34 @@ export const StaffPage = () => {
     }
   };
 
+  const handleDeleteAllStaff = async () => {
+    if (!canDeleteAllStaff) {
+      setError("Only admin can delete all staff records.");
+      return;
+    }
+
+    if (!staff.length) {
+      setError("There are no staff records to delete.");
+      return;
+    }
+
+    if (!window.confirm(`Delete all ${staff.length} staff records and linked login accounts for this school?`)) {
+      return;
+    }
+
+    setDeletingAll(true);
+    try {
+      await deleteAllStaff();
+      setImportResult(null);
+      setError("");
+      await loadData();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete all staff.");
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   const handleDownloadTemplate = async () => {
     const { utils, writeFile } = await import("xlsx");
     const workbook = utils.book_new();
@@ -276,7 +310,16 @@ export const StaffPage = () => {
       <AdminPageHeader
         title="Staff"
         description="Create and manage teachers, role assignments, and subject links. Class coordinator access is controlled from Class Management."
-        action={<Button onClick={openCreate}>+ Add Staff</Button>}
+        action={
+          <div className="flex flex-col gap-3 sm:flex-row">
+            {canDeleteAllStaff ? (
+              <Button type="button" variant="ghost" onClick={() => void handleDeleteAllStaff()} disabled={deletingAll || loading}>
+                {deletingAll ? "Deleting Staff..." : "Delete All Staff"}
+              </Button>
+            ) : null}
+            <Button onClick={openCreate}>+ Add Staff</Button>
+          </div>
+        }
       />
 
       {error ? (

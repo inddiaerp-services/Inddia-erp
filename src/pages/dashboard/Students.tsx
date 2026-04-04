@@ -10,6 +10,7 @@ import { AdminPageHeader } from "./adminPageUtils";
 import {
   bulkImportStudents,
   createStudent,
+  deleteAllStudents,
   deleteStudent,
   getStaffByUserId,
   listClasses,
@@ -101,6 +102,7 @@ export const StudentsPage = () => {
   const [modal, setModal] = useState<ModalState>({ open: false, mode: "create", student: null });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [processingPhoto, setProcessingPhoto] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
@@ -464,6 +466,35 @@ export const StudentsPage = () => {
     }
   };
 
+  const handleDeleteAllStudents = async () => {
+    if (!canManageStudentRecords) {
+      setError("Only admin can delete all student records.");
+      return;
+    }
+
+    if (!students.length) {
+      setError("There are no student records to delete.");
+      return;
+    }
+
+    if (!window.confirm(`Delete all ${students.length} students and their linked parent/login accounts for this school?`)) {
+      return;
+    }
+
+    setDeletingAll(true);
+    try {
+      await deleteAllStudents();
+      setImportResult(null);
+      setError("");
+      await loadStudents();
+      await loadClasses();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete all students.");
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
@@ -471,7 +502,18 @@ export const StudentsPage = () => {
         description={canManageStudentRecords
           ? "Manage student enrollment and mandatory parent linking with real Supabase inserts, updates, and deletes."
           : "Admission staff can create student records here. Editing and deleting remain admin-only."}
-        action={canCreateStudent ? <Button onClick={openCreate}>+ Add Student</Button> : undefined}
+        action={
+          canCreateStudent ? (
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {canManageStudentRecords ? (
+                <Button type="button" variant="ghost" onClick={() => void handleDeleteAllStudents()} disabled={deletingAll || loading}>
+                  {deletingAll ? "Deleting Students..." : "Delete All Students"}
+                </Button>
+              ) : null}
+              <Button onClick={openCreate}>+ Add Student</Button>
+            </div>
+          ) : undefined
+        }
       />
 
       {error ? (
