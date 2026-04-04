@@ -129,6 +129,7 @@ type StaffRow = {
   is_class_coordinator: boolean | null;
   assigned_class: string | null;
   assigned_section: string | null;
+  created_at?: string | null;
 };
 
 type StaffAttendanceRow = {
@@ -191,6 +192,7 @@ type StudentRow = {
   previous_board_roll_no?: string | null;
   address?: string | null;
   parent_id: string | null;
+  created_at?: string | null;
 };
 
 type TimetableRow = {
@@ -1167,7 +1169,7 @@ const getUsersMap = async (userIds: string[]) => {
   if (userIds.length === 0) return new Map<string, UsersRow>();
   if (firebaseDb) {
     const rows = await Promise.all(userIds.map((id) => getFirestoreDoc("users", id)));
-    return new Map(
+    return new Map<string, UsersRow>(
       rows
         .filter((item): item is { id: string; data: Record<string, unknown> } => Boolean(item))
         .map((item) => [item.id, mapFirebaseUserRow(item.id, item.data)]),
@@ -1190,7 +1192,7 @@ const getUsersMap = async (userIds: string[]) => {
 
   if (error) throw new Error(error.message);
 
-  return new Map((data as UsersRow[]).map((item) => [item.id, item]));
+  return new Map<string, UsersRow>((data as UsersRow[]).map((item) => [item.id, item]));
 };
 
 const getSubjectsMap = async (subjectIds: string[]) => {
@@ -1198,7 +1200,7 @@ const getSubjectsMap = async (subjectIds: string[]) => {
   if (firebaseDb) {
     const rows = await Promise.all(subjectIds.map((id) => getFirestoreDoc("subjects", id)));
     return new Map(
-      rows
+      rows as any
         .filter((item): item is { id: string; data: Record<string, unknown> } => Boolean(item))
         .map((item) => [item.id, mapFirebaseSubjectRow(item.id, item.data)]),
     );
@@ -1214,14 +1216,14 @@ const getSubjectsMap = async (subjectIds: string[]) => {
   const { data, error } = await query;
   if (error) throw new Error(error.message);
 
-  return new Map((data as SubjectRow[]).map((item) => [item.id, item]));
+  return new Map<string, SubjectRow>((data as SubjectRow[]).map((item) => [item.id, item]));
 };
 
 const getParentsMap = async (parentIds: string[]) => {
   if (parentIds.length === 0) return new Map<string, ParentRow>();
   if (firebaseDb) {
     const rows = await Promise.all(parentIds.map((id) => getFirestoreDoc("parents", id)));
-    return new Map(
+    return new Map<string, ParentRow>(
       rows
         .filter((item): item is { id: string; data: Record<string, unknown> } => Boolean(item))
         .map((item) => [item.id, mapFirebaseParentRow(item.id, item.data)]),
@@ -1244,7 +1246,7 @@ const getParentsMap = async (parentIds: string[]) => {
 
   if (error) throw new Error(error.message);
 
-  return new Map((data as ParentRow[]).map((item) => [item.id, item]));
+  return new Map<string, ParentRow>((data as ParentRow[]).map((item) => [item.id, item]));
 };
 
 const mapStudentRecord = (
@@ -6150,8 +6152,8 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
       firebaseGetDocs(firebaseQuery(firebaseCollection(firebaseDb, "staff"), firebaseWhere("schoolId", "==", schoolId), limit(3))),
     ]);
 
-    const studentRecords = students.docs.map((item) => mapFirebaseStudentRow(item.id, item.data));
-    const staffRecords = staff.docs.map((item) => mapFirebaseStaffRow(item.id, item.data));
+    const studentRecords = students.docs.map((item) => mapFirebaseStudentRow(item.id, item.data() as Record<string, unknown>));
+    const staffRecords = staff.docs.map((item) => mapFirebaseStaffRow(item.id, item.data() as Record<string, unknown>));
 
     const stats: DashboardMetric[] = [
       {
@@ -6183,13 +6185,13 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
     const recentActivity: DashboardActivity[] = [
       ...studentRecords.map((student) => ({
         module: "Students",
-        owner: student.name,
+        owner: student.name ?? "Unknown Student",
         status: "Available",
         time: student.createdAt ? formatActivityTime(student.createdAt) : "-",
       })),
       ...staffRecords.map((member) => ({
         module: "Staff",
-        owner: member.name,
+        owner: member.name ?? "Unknown Staff",
         status: member.role || "Staff",
         time: member.createdAt ? formatActivityTime(member.createdAt) : "-",
       })),
@@ -6308,7 +6310,7 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
     .slice(0, 6)
     .map((item: { module: string; owner: string; status: string; timestamp: string | null | undefined }) => ({
       module: item.module,
-      owner: item.owner,
+      owner: item.owner || "User",
       status: item.status,
       time: formatActivityTime(item.timestamp),
     }));
