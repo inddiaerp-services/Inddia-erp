@@ -25,7 +25,7 @@ const roleLabels: Record<string, string> = {
 
 const formatSessionExpiry = (timestamp?: number) => {
   if (!timestamp) return "Not available";
-  return new Date(timestamp * 1000).toLocaleString();
+  return new Date(timestamp).toLocaleString();
 };
 
 export const SettingsPage = () => {
@@ -186,7 +186,7 @@ export const SettingsPage = () => {
           <DetailField label="Email" value={user?.email ?? "-"} />
           <DetailField label="Role" value={roleLabel} />
           <DetailField label="Session Status" value={sessionStatus} />
-          <DetailField label="Session Expires" value={formatSessionExpiry(session?.expires_at)} />
+          <DetailField label="Session Expires" value={formatSessionExpiry(session?.expiresAt ?? undefined)} />
           <DetailField label="Access Model" value="Protected route access with role-based visibility" />
         </DetailSection>
 

@@ -1,8 +1,20 @@
 import { ROLES } from "../config/roles";
 import { normalizeStaffWorkspace, STAFF_WORKSPACES } from "../config/staffWorkspaces";
 import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../utils/adminApi";
-import { authStore } from "../store/authStore";
-import { supabase } from "./supabaseClient";
+import { authStore, type AppSession } from "../store/authStore";
+import { firebaseAuth, firebaseDb } from "./firebaseClient";
+import { databaseClient } from "./databaseClient";
+import {
+  collection as firebaseCollection,
+  deleteDoc as firebaseDeleteDoc,
+  doc as firebaseDoc,
+  getDoc as firebaseGetDoc,
+  getDocs as firebaseGetDocs,
+  query as firebaseQuery,
+  setDoc as firebaseSetDoc,
+  updateDoc as firebaseUpdateDoc,
+  where as firebaseWhere,
+} from "firebase/firestore";
 import { addDaysToDateString, formatShortDateFromDateString, getIndiaTodayIso, getMonthDates, getWeekdayFromDateString } from "../utils/date";
 import type {
   AnalyticsDashboard,
@@ -423,12 +435,259 @@ export type DashboardOverview = {
   recentActivity: DashboardActivity[];
 };
 
-const requireSupabase = () => {
-  if (!supabase) {
-    throw new Error("Supabase is not configured. Add your project URL and anon key.");
+export const isFirebaseOnlyMode = Boolean(firebaseDb && !databaseClient);
+
+const requireDatabaseClient = () => {
+  if (!databaseClient) {
+    throw new Error("Database client is not configured. Add your backend environment values.");
   }
 
-  return supabase;
+  return databaseClient;
+};
+
+const getFirebaseField = <T>(record: Record<string, unknown>, keys: string[]): T | undefined => {
+  for (const key of keys) {
+    if (key in record) {
+      return record[key] as T;
+    }
+  }
+  return undefined;
+};
+
+const getFirebaseString = (record: Record<string, unknown>, keys: string[]) => {
+  const value = getFirebaseField<unknown>(record, keys);
+  if (value === null || value === undefined) return null;
+  return String(value);
+};
+
+const getFirebaseNumber = (record: Record<string, unknown>, keys: string[]) => {
+  const value = getFirebaseField<unknown>(record, keys);
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getFirebaseBoolean = (record: Record<string, unknown>, keys: string[]) => {
+  const value = getFirebaseField<unknown>(record, keys);
+  if (value === null || value === undefined) return null;
+  return Boolean(value);
+};
+
+const mapFirebaseUserRow = (id: string, data: Record<string, unknown>): UsersRow => ({
+  id,
+  name: getFirebaseString(data, ["name"]) ?? "INDDIA ERP User",
+  email: getFirebaseString(data, ["email"]),
+  phone: getFirebaseString(data, ["phone", "mobileNumber", "mobile_number"]),
+  role: getFirebaseString(data, ["role"]) ?? "staff",
+  school_id: getFirebaseString(data, ["schoolId", "school_id"]),
+  photo_url: getFirebaseString(data, ["photoUrl", "photo_url"]),
+});
+
+const mapFirebaseSubjectRow = (id: string, data: Record<string, unknown>): SubjectRow => ({
+  id,
+  name: getFirebaseString(data, ["name"]) ?? "",
+});
+
+const mapFirebaseHolidayRow = (id: string, data: Record<string, unknown>): HolidayRow => ({
+  id,
+  holiday_date: getFirebaseString(data, ["holidayDate", "holiday_date"]) ?? "",
+  title: getFirebaseString(data, ["title"]) ?? "",
+  description: getFirebaseString(data, ["description"]),
+  created_at: getFirebaseString(data, ["createdAt", "created_at"]),
+});
+
+const mapFirebaseNotificationRow = (id: string, data: Record<string, unknown>): NotificationRow => ({
+  id,
+  type: getFirebaseString(data, ["type"]),
+  module: getFirebaseString(data, ["module"]),
+  message: getFirebaseString(data, ["message"]),
+  user_id: getFirebaseString(data, ["userId", "user_id"]),
+  receiver_id: getFirebaseString(data, ["receiverId", "receiver_id"]),
+  related_leave_id: getFirebaseString(data, ["relatedLeaveId", "related_leave_id"]),
+  related_fee_id: getFirebaseString(data, ["relatedFeeId", "related_fee_id"]),
+  dedupe_key: getFirebaseString(data, ["dedupeKey", "dedupe_key"]),
+  is_read: getFirebaseBoolean(data, ["isRead", "is_read"]),
+  created_at: getFirebaseString(data, ["createdAt", "created_at"]),
+});
+
+const mapFirebaseParentRow = (id: string, data: Record<string, unknown>): ParentRow => ({
+  id,
+  user_id: getFirebaseString(data, ["userId", "user_id"]),
+  school_id: getFirebaseString(data, ["schoolId", "school_id"]),
+  name: getFirebaseString(data, ["name"]),
+  email: getFirebaseString(data, ["email"]),
+  phone: getFirebaseString(data, ["phone"]),
+  father_name: getFirebaseString(data, ["fatherName", "father_name"]),
+  father_aadhar_number: getFirebaseString(data, ["fatherAadharNumber", "father_aadhar_number"]),
+  father_occupation: getFirebaseString(data, ["fatherOccupation", "father_occupation"]),
+  father_education: getFirebaseString(data, ["fatherEducation", "father_education"]),
+  father_mobile_number: getFirebaseString(data, ["fatherMobileNumber", "father_mobile_number"]),
+  father_profession: getFirebaseString(data, ["fatherProfession", "father_profession"]),
+  father_income: getFirebaseField<number | string | null>(data, ["fatherIncome", "father_income"]) ?? null,
+  mother_name: getFirebaseString(data, ["motherName", "mother_name"]),
+  mother_aadhar_number: getFirebaseString(data, ["motherAadharNumber", "mother_aadhar_number"]),
+  mother_occupation: getFirebaseString(data, ["motherOccupation", "mother_occupation"]),
+  mother_education: getFirebaseString(data, ["motherEducation", "mother_education"]),
+  mother_mobile_number: getFirebaseString(data, ["motherMobileNumber", "mother_mobile_number"]),
+  mother_profession: getFirebaseString(data, ["motherProfession", "mother_profession"]),
+  mother_income: getFirebaseField<number | string | null>(data, ["motherIncome", "mother_income"]) ?? null,
+});
+
+const mapFirebaseStaffRow = (id: string, data: Record<string, unknown>): StaffRow => ({
+  id,
+  user_id: getFirebaseString(data, ["userId", "user_id"]) ?? "",
+  name: getFirebaseString(data, ["name"]),
+  role: getFirebaseString(data, ["role"]),
+  mobile_number: getFirebaseString(data, ["mobileNumber", "mobile_number"]),
+  date_of_joining: getFirebaseString(data, ["dateOfJoining", "date_of_joining"]),
+  monthly_salary: getFirebaseField<number | string | null>(data, ["monthlySalary", "monthly_salary"]) ?? null,
+  subject_id: getFirebaseString(data, ["subjectId", "subject_id"]),
+  is_class_coordinator: getFirebaseBoolean(data, ["isClassCoordinator", "is_class_coordinator"]),
+  assigned_class: getFirebaseString(data, ["assignedClass", "assigned_class"]),
+  assigned_section: getFirebaseString(data, ["assignedSection", "assigned_section"]),
+});
+
+const mapFirebaseClassRow = (id: string, data: Record<string, unknown>): ClassRow => ({
+  id,
+  class_name: getFirebaseString(data, ["className", "class_name"]) ?? "",
+  section: getFirebaseString(data, ["section"]) ?? "",
+  room_number: getFirebaseString(data, ["roomNumber", "room_number"]),
+  floor: getFirebaseString(data, ["floor"]),
+  capacity: getFirebaseNumber(data, ["capacity"]),
+  created_at: getFirebaseString(data, ["createdAt", "created_at"]),
+});
+
+const mapFirebaseStudentRow = (id: string, data: Record<string, unknown>): StudentRow => ({
+  id,
+  user_id: getFirebaseString(data, ["userId", "user_id"]) ?? "",
+  school_id: getFirebaseString(data, ["schoolId", "school_id"]),
+  name: getFirebaseString(data, ["name"]),
+  student_code: getFirebaseString(data, ["studentCode", "student_code", "schoolId"]),
+  class: getFirebaseString(data, ["className", "class"]),
+  section: getFirebaseString(data, ["section"]),
+  admission_date: getFirebaseString(data, ["admissionDate", "admission_date"]),
+  discount_fee: getFirebaseField<number | string | null>(data, ["discountFee", "discount_fee"]) ?? null,
+  aadhar_number: getFirebaseString(data, ["studentAadharNumber", "aadhar_number"]),
+  date_of_birth: getFirebaseString(data, ["dateOfBirth", "date_of_birth"]),
+  birth_id: getFirebaseString(data, ["birthId", "birth_id"]),
+  is_orphan: getFirebaseBoolean(data, ["isOrphan", "is_orphan"]),
+  gender: getFirebaseString(data, ["gender"]),
+  caste: getFirebaseString(data, ["caste"]),
+  osc: (getFirebaseString(data, ["osc"]) as "A" | "B" | "C" | null) ?? null,
+  identification_mark: getFirebaseString(data, ["identificationMark", "identification_mark"]),
+  previous_school: getFirebaseString(data, ["previousSchool", "previous_school"]),
+  region: getFirebaseString(data, ["region"]),
+  blood_group: getFirebaseString(data, ["bloodGroup", "blood_group"]),
+  previous_board_roll_no: getFirebaseString(data, ["previousBoardRollNo", "previous_board_roll_no"]),
+  address: getFirebaseString(data, ["address"]),
+  parent_id: getFirebaseString(data, ["parentId", "parent_id"]),
+});
+
+const mapFirebaseSchoolGeoRow = (data: Record<string, unknown>): SchoolGeoRow => ({
+  attendance_map_link: getFirebaseString(data, ["attendanceMapLink", "attendance_map_link"]),
+  attendance_geo_latitude: getFirebaseNumber(data, ["attendanceGeoLatitude", "attendance_geo_latitude"]),
+  attendance_geo_longitude: getFirebaseNumber(data, ["attendanceGeoLongitude", "attendance_geo_longitude"]),
+  attendance_geo_radius_meters: getFirebaseNumber(data, ["attendanceGeoRadiusMeters", "attendance_geo_radius_meters"]),
+});
+
+const isFirebaseSystemMetaDoc = (data: Record<string, unknown>) =>
+  Boolean(data.systemMeta) || String(data.kind ?? "").toLowerCase() === "system_meta";
+
+const isFirebasePermissionError = (error: unknown) => {
+  const message = String((error as { message?: string } | null)?.message ?? error ?? "").toLowerCase();
+  const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
+  return (
+    message.includes("missing or insufficient permissions") ||
+    message.includes("permission-denied") ||
+    code.includes("permission-denied")
+  );
+};
+
+const listFirestoreCollectionThroughServer = async (collectionName: string, schoolId: string) => {
+  return invokeServerAction<Array<{ id: string; data: Record<string, unknown> }>>("list_firestore_collection", {
+    collectionName,
+    schoolId,
+  });
+};
+
+const getFirestoreDocumentThroughServer = async (collectionName: string, id: string, schoolId?: string | null) => {
+  return invokeServerAction<{ id: string; data: Record<string, unknown> } | null>("get_firestore_document", {
+    collectionName,
+    id,
+    schoolId: schoolId ?? null,
+  });
+};
+
+const setFirestoreDocumentThroughServer = async (
+  collectionName: string,
+  id: string,
+  data: Record<string, unknown>,
+  options?: { schoolId?: string | null; merge?: boolean },
+) => {
+  return invokeServerAction<{ id: string; data: Record<string, unknown> }>("set_firestore_document", {
+    collectionName,
+    id,
+    data,
+    schoolId: options?.schoolId ?? null,
+    merge: Boolean(options?.merge),
+  });
+};
+
+const deleteFirestoreDocumentThroughServer = async (
+  collectionName: string,
+  id: string,
+  schoolId?: string | null,
+) => {
+  return invokeServerAction<{ ok: true }>("delete_firestore_document", {
+    collectionName,
+    id,
+    schoolId: schoolId ?? null,
+  });
+};
+
+const getFirestoreSchoolScopedDocs = async (collectionName: string, schoolId: string) => {
+  if (!firebaseDb) return [];
+
+  try {
+    const camelSnapshot = await firebaseGetDocs(
+      firebaseQuery(firebaseCollection(firebaseDb, collectionName), firebaseWhere("schoolId", "==", schoolId)),
+    );
+
+    if (!camelSnapshot.empty) {
+      return camelSnapshot.docs
+        .map((item) => ({ id: item.id, data: item.data() as Record<string, unknown> }))
+        .filter((item) => !isFirebaseSystemMetaDoc(item.data));
+    }
+
+    const snakeSnapshot = await firebaseGetDocs(
+      firebaseQuery(firebaseCollection(firebaseDb, collectionName), firebaseWhere("school_id", "==", schoolId)),
+    );
+
+    return snakeSnapshot.docs
+      .map((item) => ({ id: item.id, data: item.data() as Record<string, unknown> }))
+      .filter((item) => !isFirebaseSystemMetaDoc(item.data));
+  } catch (error) {
+    if (!isFirebasePermissionError(error)) {
+      throw error;
+    }
+
+    return listFirestoreCollectionThroughServer(collectionName, schoolId);
+  }
+};
+
+const getFirestoreDoc = async (collectionName: string, id: string) => {
+  if (!firebaseDb) return null;
+  try {
+    const snapshot = await firebaseGetDoc(firebaseDoc(firebaseDb, collectionName, id));
+    if (!snapshot.exists()) return null;
+    return { id: snapshot.id, data: snapshot.data() as Record<string, unknown> };
+  } catch (error) {
+    if (!isFirebasePermissionError(error)) {
+      throw error;
+    }
+
+    return getFirestoreDocumentThroughServer(collectionName, id, getCurrentSchoolId());
+  }
 };
 
 const getCurrentSchoolId = () => authStore.getState().school?.id ?? authStore.getState().user?.schoolId ?? null;
@@ -556,7 +815,11 @@ const logAuditEvent = async (
   recordId?: string | null,
   actorUserId?: string | null,
 ) => {
-  const client = requireSupabase();
+  if (!databaseClient) {
+    return;
+  }
+
+  const client = requireDatabaseClient();
   const resolvedUserId = actorUserId ?? authStore.getState().user?.id ?? null;
   const resolvedSchoolId = getCurrentSchoolId();
 
@@ -588,35 +851,50 @@ const normalizeApplicantStatus = (status: string | null | undefined) => {
 };
 
 const getActiveSession = async () => {
-  const client = requireSupabase();
-  const {
-    data: { session },
-  } = await client.auth.getSession();
+  const currentSession = authStore.getState().session;
+  if (currentSession?.accessToken) {
+    return currentSession;
+  }
 
-  if (session?.access_token) {
+  if (firebaseAuth?.currentUser) {
+    const accessToken = await firebaseAuth.currentUser.getIdToken();
+    const session: AppSession = {
+      accessToken,
+      refreshToken: firebaseAuth.currentUser.refreshToken || null,
+      expiresAt: null,
+      uid: firebaseAuth.currentUser.uid,
+      email: firebaseAuth.currentUser.email,
+    };
+    authStore.getState().setAuth({
+      user: authStore.getState().user,
+      role: authStore.getState().role,
+      school: authStore.getState().school,
+      session,
+    });
     return session;
   }
 
-  return authStore.getState().session;
+  return null;
 };
 
 const refreshActiveSession = async () => {
-  const client = requireSupabase();
-  const currentSession = authStore.getState().session ?? (await client.auth.getSession()).data.session;
-
-  if (!currentSession?.refresh_token) {
+  if (!firebaseAuth?.currentUser) {
     return null;
   }
 
-  const {
-    data: { session },
-    error,
-  } = await client.auth.refreshSession({ refresh_token: currentSession.refresh_token });
-
-  if (error) {
-    return null;
-  }
-
+  const session: AppSession = {
+    accessToken: await firebaseAuth.currentUser.getIdToken(true),
+    refreshToken: firebaseAuth.currentUser.refreshToken || null,
+    expiresAt: null,
+    uid: firebaseAuth.currentUser.uid,
+    email: firebaseAuth.currentUser.email,
+  };
+  authStore.getState().setAuth({
+    user: authStore.getState().user,
+    role: authStore.getState().role,
+    school: authStore.getState().school,
+    session,
+  });
   return session;
 };
 
@@ -676,13 +954,13 @@ const parseAdminApiResponse = async <T>(response: Response) => {
 const invokeAdminAction = async <T>(action: string, payload: Record<string, unknown>) => {
   const session = await getActiveSession();
 
-  if (!session?.access_token) {
+  if (!session?.accessToken) {
     throw new Error("Admin session not found. Sign in again.");
   }
 
   let response: Response;
   try {
-    response = await postToAdminApi(JSON.stringify({ action, payload }), session.access_token);
+    response = await postToAdminApi(JSON.stringify({ action, payload }), session.accessToken);
   } catch (error) {
     throw error;
   }
@@ -694,15 +972,15 @@ const invokeAdminAction = async <T>(action: string, payload: Record<string, unkn
 
   if (isUnauthorized) {
     const refreshedSession = await refreshActiveSession();
-    if (refreshedSession?.access_token && refreshedSession.access_token !== session.access_token) {
-      response = await postToAdminApi(JSON.stringify({ action, payload }), refreshedSession.access_token);
+    if (refreshedSession?.accessToken && refreshedSession.accessToken !== session.accessToken) {
+      response = await postToAdminApi(JSON.stringify({ action, payload }), refreshedSession.accessToken);
       result = await parseAdminApiResponse<T>(response);
     }
   }
 
   if (!response.ok || result.error) {
     const backendMissingMessage =
-      "Admin setup is incomplete. Create `.env.server` with `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`, then run `npm run dev:server`.";
+      "Admin setup is incomplete. Configure `.env.server` with Firebase Admin credentials and any required legacy database credentials, then run `npm run dev:server`.";
 
     if (response.status >= 500) {
       throw new Error(
@@ -721,13 +999,13 @@ const invokeAdminAction = async <T>(action: string, payload: Record<string, unkn
 const invokeServerAction = async <T>(action: string, payload: Record<string, unknown>) => {
   const session = await getActiveSession();
 
-  if (!session?.access_token) {
+  if (!session?.accessToken) {
     throw new Error("Session not found. Sign in again.");
   }
 
   let response: Response;
   try {
-    response = await postToAdminApi(JSON.stringify({ action, payload }), session.access_token);
+    response = await postToAdminApi(JSON.stringify({ action, payload }), session.accessToken);
   } catch (error) {
     throw error;
   }
@@ -739,8 +1017,8 @@ const invokeServerAction = async <T>(action: string, payload: Record<string, unk
 
   if (isUnauthorized) {
     const refreshedSession = await refreshActiveSession();
-    if (refreshedSession?.access_token && refreshedSession.access_token !== session.access_token) {
-      response = await postToAdminApi(JSON.stringify({ action, payload }), refreshedSession.access_token);
+    if (refreshedSession?.accessToken && refreshedSession.accessToken !== session.accessToken) {
+      response = await postToAdminApi(JSON.stringify({ action, payload }), refreshedSession.accessToken);
       result = await parseAdminApiResponse<T>(response);
     }
   }
@@ -753,7 +1031,6 @@ const invokeServerAction = async <T>(action: string, payload: Record<string, unk
 };
 
 export const getAttendanceGeoSettings = async (): Promise<AttendanceGeoSettings> => {
-  const client = requireSupabase();
   const schoolId = authStore.getState().school?.id ?? authStore.getState().user?.schoolId ?? null;
 
   if (!schoolId) {
@@ -765,6 +1042,24 @@ export const getAttendanceGeoSettings = async (): Promise<AttendanceGeoSettings>
       isEnabled: false,
     };
   }
+
+  if (firebaseDb) {
+    const snapshot = await getFirestoreDoc("schools", schoolId);
+    const row = snapshot ? mapFirebaseSchoolGeoRow(snapshot.data) : null;
+    const latitude = row?.attendance_geo_latitude ?? null;
+    const longitude = row?.attendance_geo_longitude ?? null;
+    const radiusMeters = row?.attendance_geo_radius_meters ?? null;
+
+    return {
+      mapLink: row?.attendance_map_link ?? null,
+      latitude,
+      longitude,
+      radiusMeters,
+      isEnabled: latitude !== null && longitude !== null && radiusMeters !== null && radiusMeters > 0,
+    };
+  }
+
+  const client = requireDatabaseClient();
 
   const { data, error } = await client
     .from("schools")
@@ -801,7 +1096,16 @@ const mapSubject = (subject: SubjectRow): SubjectRecord => ({
 
 const getUsersMap = async (userIds: string[]) => {
   if (userIds.length === 0) return new Map<string, UsersRow>();
-  const client = requireSupabase();
+  if (firebaseDb) {
+    const rows = await Promise.all(userIds.map((id) => getFirestoreDoc("users", id)));
+    return new Map(
+      rows
+        .filter((item): item is { id: string; data: Record<string, unknown> } => Boolean(item))
+        .map((item) => [item.id, mapFirebaseUserRow(item.id, item.data)]),
+    );
+  }
+
+  const client = requireDatabaseClient();
   const schoolId = getCurrentSchoolId();
 
   let query = client
@@ -822,7 +1126,16 @@ const getUsersMap = async (userIds: string[]) => {
 
 const getSubjectsMap = async (subjectIds: string[]) => {
   if (subjectIds.length === 0) return new Map<string, SubjectRow>();
-  const client = requireSupabase();
+  if (firebaseDb) {
+    const rows = await Promise.all(subjectIds.map((id) => getFirestoreDoc("subjects", id)));
+    return new Map(
+      rows
+        .filter((item): item is { id: string; data: Record<string, unknown> } => Boolean(item))
+        .map((item) => [item.id, mapFirebaseSubjectRow(item.id, item.data)]),
+    );
+  }
+
+  const client = requireDatabaseClient();
   const schoolId = getCurrentSchoolId();
 
   let query = client.from("subjects").select("id, name").in("id", subjectIds);
@@ -837,7 +1150,16 @@ const getSubjectsMap = async (subjectIds: string[]) => {
 
 const getParentsMap = async (parentIds: string[]) => {
   if (parentIds.length === 0) return new Map<string, ParentRow>();
-  const client = requireSupabase();
+  if (firebaseDb) {
+    const rows = await Promise.all(parentIds.map((id) => getFirestoreDoc("parents", id)));
+    return new Map(
+      rows
+        .filter((item): item is { id: string; data: Record<string, unknown> } => Boolean(item))
+        .map((item) => [item.id, mapFirebaseParentRow(item.id, item.data)]),
+    );
+  }
+
+  const client = requireDatabaseClient();
   const schoolId = getCurrentSchoolId();
 
   let query = client
@@ -975,7 +1297,7 @@ const syncClassCoordinator = async (
   coordinatorId: string | null,
   previousAssignment?: { className: string; section: string } | null,
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
 
   if (
     previousAssignment &&
@@ -1036,7 +1358,25 @@ const syncClassCoordinator = async (
 
 export const listClasses = async (): Promise<ClassRecord[]> => {
   return readSchoolScopedCache("classes", async () => {
-    const client = requireSupabase();
+    if (firebaseDb) {
+      const schoolId = requireCurrentSchoolId();
+      const classRows = (await getFirestoreSchoolScopedDocs("classes", schoolId))
+        .map((item) => mapFirebaseClassRow(item.id, item.data))
+        .sort((left, right) => {
+          const classCompare = left.class_name.localeCompare(right.class_name);
+          return classCompare !== 0 ? classCompare : left.section.localeCompare(right.section);
+        });
+      const staffRows = await listStaff();
+      const coordinatorMap = new Map(
+        staffRows
+          .filter((item) => item.isClassCoordinator && item.assignedClass && item.assignedSection)
+          .map((item) => [`${item.assignedClass}::${item.assignedSection}`, item]),
+      );
+
+      return classRows.map((row) => mapClass(row, coordinatorMap.get(`${row.class_name}::${row.section}`) ?? null));
+    }
+
+    const client = requireDatabaseClient();
     const schoolId = requireCurrentSchoolId();
     const { data, error } = await client
       .from("classes")
@@ -1062,7 +1402,32 @@ export const listClasses = async (): Promise<ClassRecord[]> => {
 };
 
 export const getClassDetail = async (classId: string): Promise<ClassDetail> => {
-  const client = requireSupabase();
+  if (firebaseDb) {
+    const snapshot = await getFirestoreDoc("classes", classId);
+    if (!snapshot) {
+      throw new Error("Class not found.");
+    }
+
+    const classRow = mapFirebaseClassRow(snapshot.id, snapshot.data);
+    const [staffRows, students] = await Promise.all([listStaff(), listStudents()]);
+    const coordinator =
+      staffRows.find(
+        (item) =>
+          item.isClassCoordinator &&
+          item.assignedClass === classRow.class_name &&
+          item.assignedSection === classRow.section,
+      ) ?? null;
+
+    return {
+      classRecord: mapClass(classRow, coordinator),
+      coordinator,
+      students: students.filter(
+        (student) => student.className === classRow.class_name && student.section === classRow.section,
+      ),
+    };
+  }
+
+  const client = requireDatabaseClient();
   const schoolId = requireCurrentSchoolId();
   const { data, error } = await client
     .from("classes")
@@ -1108,7 +1473,7 @@ export const createClass = async (values: ClassFormValues) =>
 
 export const updateClass = async (classId: string, values: ClassFormValues) =>
   (async () => {
-    const client = requireSupabase();
+    const client = requireDatabaseClient();
     const current = await getClassDetail(classId);
     const payload = validateClassForm(values);
     await invokeAdminAction<ClassRecord>("update_class", { id: classId, ...values });
@@ -1173,7 +1538,14 @@ export const deleteClass = async (classId: string) =>
 
 export const listSubjects = async (): Promise<SubjectRecord[]> => {
   return readSchoolScopedCache("subjects", async () => {
-    const client = requireSupabase();
+    if (firebaseDb) {
+      const schoolId = requireCurrentSchoolId();
+      return (await getFirestoreSchoolScopedDocs("subjects", schoolId))
+        .map((item) => mapSubject(mapFirebaseSubjectRow(item.id, item.data)))
+        .sort((left, right) => left.name.localeCompare(right.name));
+    }
+
+    const client = requireDatabaseClient();
     const schoolId = requireCurrentSchoolId();
     const { data, error } = await client.from("subjects").select("id, name").eq("school_id", schoolId).order("name");
     if (error) throw new Error(error.message);
@@ -1183,7 +1555,14 @@ export const listSubjects = async (): Promise<SubjectRecord[]> => {
 
 export const listHolidays = async (): Promise<HolidayRecord[]> => {
   return readSchoolScopedCache("holidays", async () => {
-    const client = requireSupabase();
+    if (firebaseDb) {
+      const schoolId = requireCurrentSchoolId();
+      return (await getFirestoreSchoolScopedDocs("holidays", schoolId))
+        .map((item) => mapHoliday(mapFirebaseHolidayRow(item.id, item.data)))
+        .sort((left, right) => left.holidayDate.localeCompare(right.holidayDate));
+    }
+
+    const client = requireDatabaseClient();
     const schoolId = requireCurrentSchoolId();
     const { data, error } = await client
       .from("holidays")
@@ -1197,7 +1576,16 @@ export const listHolidays = async (): Promise<HolidayRecord[]> => {
 };
 
 export const getHolidayByDate = async (date: string) => {
-  const client = requireSupabase();
+  if (firebaseDb) {
+    const schoolId = requireCurrentSchoolId();
+    const holiday = (await getFirestoreSchoolScopedDocs("holidays", schoolId))
+      .map((item) => mapFirebaseHolidayRow(item.id, item.data))
+      .find((item) => item.holiday_date === date);
+
+    return holiday ? mapHoliday(holiday) : null;
+  }
+
+  const client = requireDatabaseClient();
   const schoolId = requireCurrentSchoolId();
   const { data, error } = await client
     .from("holidays")
@@ -1212,9 +1600,42 @@ export const getHolidayByDate = async (date: string) => {
 
 export const createHoliday = async (values: HolidayFormValues) =>
   (async () => {
-    const client = requireSupabase();
-    const schoolId = requireCurrentSchoolId();
     const payload = validateHolidayForm(values);
+    const schoolId = requireCurrentSchoolId();
+
+    if (firebaseDb) {
+      const holidayId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const createdAt = new Date().toISOString();
+      const holidayPayload = {
+        schoolId,
+        holidayDate: payload.holidayDate,
+        title: payload.title,
+        description: payload.description,
+        createdAt,
+      };
+
+      try {
+        await firebaseSetDoc(firebaseDoc(firebaseDb, "holidays", holidayId), holidayPayload);
+      } catch (error) {
+        if (!isFirebasePermissionError(error)) {
+          throw error;
+        }
+        await setFirestoreDocumentThroughServer("holidays", holidayId, holidayPayload, { schoolId });
+      }
+
+      invalidateSchoolScopedCache(["holidays"]);
+      const holiday = mapHoliday({
+        id: holidayId,
+        holiday_date: payload.holidayDate,
+        title: payload.title,
+        description: payload.description,
+        created_at: createdAt,
+      });
+      await logAuditEvent("CREATE", "HOLIDAY", holiday.id);
+      return holiday;
+    }
+
+    const client = requireDatabaseClient();
     const { data, error } = await client
       .from("holidays")
       .insert({
@@ -1235,9 +1656,48 @@ export const createHoliday = async (values: HolidayFormValues) =>
 
 export const updateHoliday = async (holidayId: string, values: HolidayFormValues) =>
   (async () => {
-    const client = requireSupabase();
-    const schoolId = requireCurrentSchoolId();
     const payload = validateHolidayForm(values);
+    const schoolId = requireCurrentSchoolId();
+
+    if (firebaseDb) {
+      const snapshot = await getFirestoreDoc("holidays", holidayId);
+      if (!snapshot) {
+        throw new Error("Holiday not found.");
+      }
+
+      const holiday = mapFirebaseHolidayRow(snapshot.id, snapshot.data);
+      const holidaySchoolId = getFirebaseString(snapshot.data, ["schoolId", "school_id"]);
+      if (holidaySchoolId !== schoolId) {
+        throw new Error("Holiday not found.");
+      }
+
+      const holidayPayload = {
+        holidayDate: payload.holidayDate,
+        title: payload.title,
+        description: payload.description,
+      };
+
+      try {
+        await firebaseUpdateDoc(firebaseDoc(firebaseDb, "holidays", holidayId), holidayPayload);
+      } catch (error) {
+        if (!isFirebasePermissionError(error)) {
+          throw error;
+        }
+        await setFirestoreDocumentThroughServer("holidays", holidayId, holidayPayload, { schoolId, merge: true });
+      }
+
+      invalidateSchoolScopedCache(["holidays"]);
+      const updatedHoliday = mapHoliday({
+        ...holiday,
+        holiday_date: payload.holidayDate,
+        title: payload.title,
+        description: payload.description,
+      });
+      await logAuditEvent("UPDATE", "HOLIDAY", updatedHoliday.id);
+      return updatedHoliday;
+    }
+
+    const client = requireDatabaseClient();
     const { data, error } = await client
       .from("holidays")
       .update({
@@ -1259,8 +1719,33 @@ export const updateHoliday = async (holidayId: string, values: HolidayFormValues
 
 export const deleteHoliday = async (holidayId: string) =>
   (async () => {
-    const client = requireSupabase();
     const schoolId = requireCurrentSchoolId();
+
+    if (firebaseDb) {
+      const snapshot = await getFirestoreDoc("holidays", holidayId);
+      if (!snapshot) {
+        throw new Error("Holiday not found.");
+      }
+
+      const holidaySchoolId = getFirebaseString(snapshot.data, ["schoolId", "school_id"]);
+      if (holidaySchoolId !== schoolId) {
+        throw new Error("Holiday not found.");
+      }
+
+      try {
+        await firebaseDeleteDoc(firebaseDoc(firebaseDb, "holidays", holidayId));
+      } catch (error) {
+        if (!isFirebasePermissionError(error)) {
+          throw error;
+        }
+        await deleteFirestoreDocumentThroughServer("holidays", holidayId, schoolId);
+      }
+      invalidateSchoolScopedCache(["holidays"]);
+      await logAuditEvent("DELETE", "HOLIDAY", holidayId);
+      return;
+    }
+
+    const client = requireDatabaseClient();
     const { error } = await client.from("holidays").delete().eq("id", holidayId).eq("school_id", schoolId);
     if (error) throw new Error(error.message);
     invalidateSchoolScopedCache(["holidays"]);
@@ -1268,7 +1753,25 @@ export const deleteHoliday = async (holidayId: string) =>
   })();
 
 export const getSubjectDetail = async (subjectId: string) => {
-  const client = requireSupabase();
+  if (firebaseDb) {
+    const snapshot = await getFirestoreDoc("subjects", subjectId);
+    if (!snapshot) {
+      throw new Error("Subject not found.");
+    }
+
+    const subject = mapFirebaseSubjectRow(snapshot.id, snapshot.data);
+    const staffRows = (await listStaff()).filter((item) => item.subjectId === subjectId);
+
+    return {
+      subject: mapSubject(subject),
+      assignedTeachers: staffRows.map((item) => ({
+        ...item,
+        subjectName: subject.name,
+      })),
+    };
+  }
+
+  const client = requireDatabaseClient();
   const schoolId = requireCurrentSchoolId();
   const { data: subject, error: subjectError } = await client
     .from("subjects")
@@ -1318,11 +1821,33 @@ export const getSubjectDetail = async (subjectId: string) => {
 
 export const createSubject = async (values: SubjectFormValues) =>
   (async () => {
-    const client = requireSupabase();
-    const schoolId = requireCurrentSchoolId();
     const name = values.name.trim();
+    const schoolId = requireCurrentSchoolId();
     if (!name) throw new Error("Subject name is required.");
 
+    if (firebaseDb) {
+      const subjectId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const subjectPayload = {
+        schoolId,
+        name,
+      };
+
+      try {
+        await firebaseSetDoc(firebaseDoc(firebaseDb, "subjects", subjectId), subjectPayload);
+      } catch (error) {
+        if (!isFirebasePermissionError(error)) {
+          throw error;
+        }
+        await setFirestoreDocumentThroughServer("subjects", subjectId, subjectPayload, { schoolId });
+      }
+
+      invalidateSchoolScopedCache(["subjects"]);
+      const subject = mapSubject({ id: subjectId, name });
+      await logAuditEvent("CREATE", "SUBJECT", subject.id);
+      return subject;
+    }
+
+    const client = requireDatabaseClient();
     const { data, error } = await client
       .from("subjects")
       .insert({ school_id: schoolId, name })
@@ -1345,11 +1870,36 @@ export const createSubject = async (values: SubjectFormValues) =>
 
 export const updateSubject = async (subjectId: string, values: SubjectFormValues) =>
   (async () => {
-    const client = requireSupabase();
-    const schoolId = requireCurrentSchoolId();
     const name = values.name.trim();
+    const schoolId = requireCurrentSchoolId();
     if (!name) throw new Error("Subject name is required.");
 
+    if (firebaseDb) {
+      const snapshot = await getFirestoreDoc("subjects", subjectId);
+      if (!snapshot) {
+        throw new Error("Subject not found.");
+      }
+
+      const subjectSchoolId = getFirebaseString(snapshot.data, ["schoolId", "school_id"]);
+      if (subjectSchoolId !== schoolId) {
+        throw new Error("Subject not found.");
+      }
+
+      try {
+        await firebaseUpdateDoc(firebaseDoc(firebaseDb, "subjects", subjectId), { name });
+      } catch (error) {
+        if (!isFirebasePermissionError(error)) {
+          throw error;
+        }
+        await setFirestoreDocumentThroughServer("subjects", subjectId, { name }, { schoolId, merge: true });
+      }
+      invalidateSchoolScopedCache(["subjects", "staff"]);
+      const subject = mapSubject({ id: subjectId, name });
+      await logAuditEvent("UPDATE", "SUBJECT", subject.id);
+      return subject;
+    }
+
+    const client = requireDatabaseClient();
     const { data, error } = await client
       .from("subjects")
       .update({ name })
@@ -1367,8 +1917,33 @@ export const updateSubject = async (subjectId: string, values: SubjectFormValues
 
 export const deleteSubject = async (subjectId: string) =>
   (async () => {
-    const client = requireSupabase();
     const schoolId = requireCurrentSchoolId();
+
+    if (firebaseDb) {
+      const snapshot = await getFirestoreDoc("subjects", subjectId);
+      if (!snapshot) {
+        throw new Error("Subject not found.");
+      }
+
+      const subjectSchoolId = getFirebaseString(snapshot.data, ["schoolId", "school_id"]);
+      if (subjectSchoolId !== schoolId) {
+        throw new Error("Subject not found.");
+      }
+
+      try {
+        await firebaseDeleteDoc(firebaseDoc(firebaseDb, "subjects", subjectId));
+      } catch (error) {
+        if (!isFirebasePermissionError(error)) {
+          throw error;
+        }
+        await deleteFirestoreDocumentThroughServer("subjects", subjectId, schoolId);
+      }
+      invalidateSchoolScopedCache(["subjects", "staff"]);
+      await logAuditEvent("DELETE", "SUBJECT", subjectId);
+      return;
+    }
+
+    const client = requireDatabaseClient();
     const { error } = await client.from("subjects").delete().eq("id", subjectId).eq("school_id", schoolId);
     if (error) throw new Error(error.message);
     invalidateSchoolScopedCache(["subjects", "staff"]);
@@ -1377,7 +1952,39 @@ export const deleteSubject = async (subjectId: string) =>
 
 export const listStaff = async (): Promise<StaffRecord[]> => {
   return readSchoolScopedCache("staff", async () => {
-    const client = requireSupabase();
+    if (firebaseDb) {
+      const schoolId = requireCurrentSchoolId();
+      const staffRows = (await getFirestoreSchoolScopedDocs("staff", schoolId))
+        .map((item) => mapFirebaseStaffRow(item.id, item.data))
+        .sort((left, right) => String(left.name ?? "").localeCompare(String(right.name ?? "")));
+
+      const usersMap = await getUsersMap(staffRows.map((item) => item.user_id));
+      const subjectsMap = await getSubjectsMap(
+        staffRows.map((item) => item.subject_id).filter((value): value is string => Boolean(value)),
+      );
+
+      return staffRows.map((item) => ({
+        id: item.id,
+        userId: item.user_id,
+        name: item.name ?? usersMap.get(item.user_id)?.name ?? "Unnamed staff",
+        email: usersMap.get(item.user_id)?.email ?? "",
+        mobileNumber: item.mobile_number ?? usersMap.get(item.user_id)?.phone ?? "",
+        photoUrl: usersMap.get(item.user_id)?.photo_url ?? null,
+        role: item.role ?? "Teacher",
+        dateOfJoining: item.date_of_joining,
+        monthlySalary:
+          item.monthly_salary == null || item.monthly_salary === ""
+            ? null
+            : Number(item.monthly_salary),
+        subjectId: item.subject_id,
+        subjectName: item.subject_id ? subjectsMap.get(item.subject_id)?.name ?? null : null,
+        assignedClass: item.assigned_class,
+        assignedSection: item.assigned_section,
+        isClassCoordinator: Boolean(item.is_class_coordinator),
+      }));
+    }
+
+    const client = requireDatabaseClient();
     const schoolId = requireCurrentSchoolId();
     const { data, error } = await client
       .from("staff")
@@ -1416,7 +2023,38 @@ export const listStaff = async (): Promise<StaffRecord[]> => {
 };
 
 export const getStaffDetail = async (staffId: string) => {
-  const client = requireSupabase();
+  if (firebaseDb) {
+    const snapshot = await getFirestoreDoc("staff", staffId);
+    if (!snapshot) {
+      throw new Error("Staff member not found.");
+    }
+
+    const staffRow = mapFirebaseStaffRow(snapshot.id, snapshot.data);
+    const usersMap = await getUsersMap([staffRow.user_id]);
+    const subjectsMap = await getSubjectsMap(staffRow.subject_id ? [staffRow.subject_id] : []);
+
+    return {
+      id: staffRow.id,
+      userId: staffRow.user_id,
+      name: staffRow.name ?? usersMap.get(staffRow.user_id)?.name ?? "Unnamed staff",
+      email: usersMap.get(staffRow.user_id)?.email ?? "",
+      mobileNumber: staffRow.mobile_number ?? usersMap.get(staffRow.user_id)?.phone ?? "",
+      photoUrl: usersMap.get(staffRow.user_id)?.photo_url ?? null,
+      role: staffRow.role ?? "Teacher",
+      dateOfJoining: staffRow.date_of_joining,
+      monthlySalary:
+        staffRow.monthly_salary == null || staffRow.monthly_salary === ""
+          ? null
+          : Number(staffRow.monthly_salary),
+      subjectId: staffRow.subject_id,
+      subjectName: staffRow.subject_id ? subjectsMap.get(staffRow.subject_id)?.name ?? null : null,
+      assignedClass: staffRow.assigned_class,
+      assignedSection: staffRow.assigned_section,
+      isClassCoordinator: Boolean(staffRow.is_class_coordinator),
+    } satisfies StaffRecord;
+  }
+
+  const client = requireDatabaseClient();
   const schoolId = requireCurrentSchoolId();
   const { data, error } = await client
     .from("staff")
@@ -1495,7 +2133,7 @@ export const deleteStaff = async (staffId: string) =>
       }
     }
 
-    const client = requireSupabase();
+    const client = requireDatabaseClient();
 
     const { data: staffRow, error: staffLoadError } = await client
       .from("staff")
@@ -1533,7 +2171,27 @@ export const deleteStaff = async (staffId: string) =>
 
 export const listStudents = async (): Promise<StudentRecord[]> => {
   return readSchoolScopedCache("students", async () => {
-    const client = requireSupabase();
+    if (firebaseDb) {
+      const schoolId = requireCurrentSchoolId();
+      const studentRows = (await getFirestoreSchoolScopedDocs("students", schoolId))
+        .map((item) => mapFirebaseStudentRow(item.id, item.data))
+        .sort((left, right) => String(left.name ?? "").localeCompare(String(right.name ?? "")));
+
+      const usersMap = await getUsersMap(studentRows.map((item) => item.user_id));
+      const parentsMap = await getParentsMap(
+        studentRows.map((item) => item.parent_id).filter((value): value is string => Boolean(value)),
+      );
+
+      return studentRows.map((item) =>
+        mapStudentRecord(
+          item,
+          usersMap.get(item.user_id),
+          item.parent_id ? parentsMap.get(item.parent_id) ?? null : null,
+        ),
+      );
+    }
+
+    const client = requireDatabaseClient();
     const schoolId = requireCurrentSchoolId();
     const { data, error } = await client
       .from("students")
@@ -1570,7 +2228,22 @@ export const getChildrenByParentUserId = async (parentUserId: string) => {
 };
 
 export const getStudentDetail = async (studentId: string) => {
-  const client = requireSupabase();
+  if (firebaseDb) {
+    const snapshot = await getFirestoreDoc("students", studentId);
+    if (!snapshot) {
+      throw new Error("Student not found.");
+    }
+
+    const studentRow = mapFirebaseStudentRow(snapshot.id, snapshot.data);
+    const usersMap = await getUsersMap([studentRow.user_id]);
+    const studentUser = usersMap.get(studentRow.user_id);
+    const parentsMap = await getParentsMap(studentRow.parent_id ? [studentRow.parent_id] : []);
+    const parent = studentRow.parent_id ? parentsMap.get(studentRow.parent_id) ?? null : null;
+
+    return mapStudentRecord(studentRow, studentUser, parent);
+  }
+
+  const client = requireDatabaseClient();
   const schoolId = requireCurrentSchoolId();
   const { data, error } = await client
     .from("students")
@@ -1789,7 +2462,7 @@ const listAttendanceRows = async (filters?: {
   teacherId?: string;
   studentIds?: string[];
 }): Promise<AttendanceRow[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   let modernQuery = client
     .from("attendance")
     .select("id, student_id, subject_id, date, status, teacher_id, created_at")
@@ -1853,7 +2526,7 @@ const listAttendanceRows = async (filters?: {
 };
 
 const getAttendanceRowById = async (attendanceId: string): Promise<AttendanceRow> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const modernResult = await client
     .from("attendance")
     .select("id, student_id, subject_id, date, status, teacher_id, created_at")
@@ -1884,7 +2557,7 @@ const listExistingAttendanceRows = async (
   subjectId: string,
   studentIds: string[],
 ): Promise<AttendanceRow[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const modernResult = await client
     .from("attendance")
     .select("id, student_id, subject_id, date, status, teacher_id, created_at")
@@ -1911,7 +2584,7 @@ const listExistingAttendanceRows = async (
 };
 
 const listExamRows = async (): Promise<ExamRow[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const nextShape = await client
     .from("exams")
     .select("id, name, class, section, start_date, end_date, exam_session, status, date, created_at")
@@ -1946,7 +2619,7 @@ const listExamRows = async (): Promise<ExamRow[]> => {
 };
 
 const getExamRowById = async (examId: string): Promise<ExamRow> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const nextShape = await client
     .from("exams")
     .select("id, name, class, section, start_date, end_date, exam_session, status, date, created_at")
@@ -1986,7 +2659,7 @@ const getExamRowById = async (examId: string): Promise<ExamRow> => {
 };
 
 const listExamActivityRows = async (): Promise<ExamRow[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const nextShape = await client
     .from("exams")
     .select("name, class, section, start_date, end_date, exam_session, status, date, created_at")
@@ -2023,7 +2696,7 @@ const listExamActivityRows = async (): Promise<ExamRow[]> => {
 };
 
 const listExamSubjectRows = async (filters?: { examId?: string }): Promise<ExamSubjectRow[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   let nextShape = client
     .from("exam_subjects")
     .select("id, exam_id, subject_id, max_marks, exam_date, exam_session, start_time, end_time");
@@ -2091,7 +2764,7 @@ const getExamSubjectSchedule = (row: ExamSubjectRow, exam: ExamRecord) => {
 };
 
 const syncExamSummaryFromSubjects = async (examId: string, rows?: ExamSubjectRow[]) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const subjectRows = rows ?? (await listExamSubjectRows({ examId }));
   if (subjectRows.length === 0) return;
 
@@ -2672,7 +3345,7 @@ export const listAttendanceSubjectsFromTimetable = async (
     return uniqueSlots;
   }
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("timetable")
     .select("subject_id, teacher_id")
@@ -2706,7 +3379,7 @@ export const listAttendanceSubjectsFromTimetable = async (
 };
 
 export const loadAttendanceRoster = async (values: AttendanceFormValues): Promise<AttendanceSession> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
 
   if (!values.className || !values.section || !values.subjectId || !values.date) {
     throw new Error("Class, section, subject, and date are required.");
@@ -2775,7 +3448,7 @@ export const loadAttendanceRoster = async (values: AttendanceFormValues): Promis
 };
 
 export const saveAttendanceSession = async (session: AttendanceSession): Promise<AttendanceSession> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const schoolId = requireCurrentSchoolId();
   const mapAttendanceWriteError = (message: string) =>
     /row-level security policy/i.test(message)
@@ -2877,7 +3550,7 @@ export const deleteAttendanceSession = async (
   subjectId: string,
   date: string,
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data: students, error: studentError } = await client
     .from("students")
     .select("id")
@@ -2907,7 +3580,7 @@ export const getAttendanceSessionDetail = async (
 
 export const listExams = async (): Promise<ExamRecord[]> => {
   const exams = (await listExamRows()).map(mapExam);
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client.from("exam_subjects").select("exam_id");
 
   if (error) {
@@ -3082,7 +3755,7 @@ export const saveExamSubjects = async (
     endTime?: string | null;
   }>,
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const normalizedSubjects = normalizeExamSubjectPayload(subjects);
 
   const deleteExisting = await client.from("exam_subjects").delete().eq("exam_id", examId);
@@ -3131,7 +3804,7 @@ export const saveExamSubjects = async (
 };
 
 export const createExam = async (values: ExamFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const sections = getSelectedExamSections(values);
   const normalizedSubjects = values.subjects?.length ? normalizeExamSubjectPayload(values.subjects) : [];
   const derivedSummary =
@@ -3216,7 +3889,7 @@ export const createExam = async (values: ExamFormValues) => {
 };
 
 export const updateExam = async (examId: string, values: ExamFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const normalizedSubjects = values.subjects?.length ? normalizeExamSubjectPayload(values.subjects) : [];
   const derivedSummary =
     normalizedSubjects.length > 0
@@ -3311,7 +3984,7 @@ export const updateExam = async (examId: string, values: ExamFormValues) => {
 };
 
 export const deleteExam = async (examId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client.from("exams").delete().eq("id", examId);
   if (error) throw new Error(error.message);
   await logAuditEvent("DELETE", "EXAM", examId);
@@ -3324,7 +3997,7 @@ const getExamsMap = async (examIds: string[]) => {
 };
 
 export const listResults = async (examId?: string): Promise<ResultRecord[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const marksQuery = examId
     ? client.from("marks").select("id, exam_id, student_id, subject_id, marks_obtained, grade, created_at").eq("exam_id", examId)
     : client.from("marks").select("id, exam_id, student_id, subject_id, marks_obtained, grade, created_at");
@@ -3390,7 +4063,7 @@ export const listResults = async (examId?: string): Promise<ResultRecord[]> => {
 };
 
 export const getResultDetail = async (resultId: string): Promise<ResultDetail> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   let studentId = "";
   let examId = "";
 
@@ -3489,7 +4162,7 @@ export const loadExamMarksSession = async (
   examId: string,
   subjectId: string,
 ): Promise<ExamMarksSession> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const exam = await getExamDetail(examId);
 
   if (!isExamMarksEntryOpen(exam)) {
@@ -3564,7 +4237,7 @@ export const loadExamMarksSession = async (
 };
 
 export const saveExamMarksSession = async (session: ExamMarksSession): Promise<ExamMarksSession> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const exam = await getExamDetail(session.examId);
 
   if (!isExamMarksEntryOpen(exam)) {
@@ -3613,7 +4286,7 @@ export const saveExamMarksSession = async (session: ExamMarksSession): Promise<E
 };
 
 export const deleteResult = async (resultId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   if (resultId.includes(":")) {
     const [studentId, examId] = resultId.split(":");
     const { error } = await client.from("marks").delete().eq("student_id", studentId).eq("exam_id", examId);
@@ -3628,7 +4301,7 @@ export const deleteResult = async (resultId: string) => {
 };
 
 export const listFees = async (): Promise<FeeRecord[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const modernQuery = await client
     .from("fees")
     .select("id, student_id, total_amount, paid_amount, status, due_date, created_at")
@@ -3684,7 +4357,7 @@ export const getFeeDetail = async (feeId: string) => {
 };
 
 export const createFee = async (values: FeeFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const totalAmount = Number(values.totalAmount);
   const modernInsert = await client
     .from("fees")
@@ -3737,7 +4410,7 @@ export const createFee = async (values: FeeFormValues) => {
 };
 
 export const updateFee = async (feeId: string, values: FeeFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const current = await getFeeDetail(feeId);
   const totalAmount = Number(values.totalAmount);
   const paidAmount = Math.min(current.paidAmount, totalAmount);
@@ -3781,14 +4454,14 @@ export const updateFee = async (feeId: string, values: FeeFormValues) => {
 };
 
 export const deleteFee = async (feeId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client.from("fees").delete().eq("id", feeId);
   if (error) throw new Error(error.message);
   await logAuditEvent("DELETE", "FEES", feeId);
 };
 
 export const addFeePayment = async (feeId: string, values: FeePaymentValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const paymentAmount = Number(values.amount);
   if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
     throw new Error("Payment amount must be greater than zero.");
@@ -3956,7 +4629,7 @@ export const listStaffAttendance = async (filters?: {
     }
   }
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const schoolId = requireCurrentSchoolId();
   let query = client
     .from("staff_attendance")
@@ -4028,7 +4701,7 @@ export const saveStaffAttendance = async (date: string, entries: StaffAttendance
 };
 
 export const listLeaves = async (): Promise<LeaveRecord[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const modernQuery = await client
     .from("leaves")
     .select("id, staff_id, start_date, end_date, status, reason, hr_comment, admin_comment")
@@ -4072,7 +4745,7 @@ export const getLeaveDetail = async (leaveId: string) => {
 };
 
 export const createLeave = async (values: LeaveFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const modernInsert = await client
     .from("leaves")
     .insert({
@@ -4114,7 +4787,7 @@ export const createLeave = async (values: LeaveFormValues) => {
 };
 
 export const updateLeave = async (leaveId: string, values: LeaveFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const existing = await getLeaveDetail(leaveId);
   const modernUpdate = await client
     .from("leaves")
@@ -4153,7 +4826,7 @@ export const updateLeave = async (leaveId: string, values: LeaveFormValues) => {
 };
 
 export const deleteLeave = async (leaveId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client.from("leaves").delete().eq("id", leaveId);
   if (error) throw new Error(error.message);
   await logAuditEvent("DELETE", "LEAVES", leaveId);
@@ -4170,7 +4843,7 @@ const mapTimetableImpacts = async (rows: TimetableAdjustmentRow[]): Promise<Time
     new Set(rows.flatMap((row) => (row.replacement_subject_id ? [row.replacement_subject_id] : []))),
   );
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const timetableResult = await client
     .from("timetable")
     .select("id, class, section, subject_id, teacher_id, day, start_time, end_time, is_cancelled, cancellation_reason")
@@ -4230,7 +4903,7 @@ const syncApprovedLeaveImpacts = async (leaveId: string) => {
     return [];
   }
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const staffRows = await listStaff();
   const teacher = staffRows.find((item) => item.id === leave.staffId) ?? null;
   const allTeacherSlots = await listTimetableSlots({ teacherId: leave.staffId });
@@ -4327,7 +5000,7 @@ export const reviewLeaveByHr = async (
   decision: "Pending_Admin" | "Rejected_By_HR",
   hrComment: string,
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client
     .from("leaves")
     .update({
@@ -4347,7 +5020,7 @@ export const reviewLeaveByAdmin = async (
   decision: "Approved" | "Rejected_By_Admin",
   adminComment: string,
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client
     .from("leaves")
     .update({
@@ -4366,7 +5039,7 @@ export const reviewLeaveByAdmin = async (
 };
 
 export const getAnalyticsDashboard = async (): Promise<AnalyticsDashboard> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const [overviewResult, monthlyResult, attendanceResult, performanceResult] = await Promise.all([
     client.rpc("analytics_overview"),
     client.rpc("analytics_monthly_fee_collection"),
@@ -4430,7 +5103,7 @@ export const listAuditLogs = async (filters?: {
   module?: string;
   date?: string;
 }): Promise<AuditLogRecord[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const schoolId = requireCurrentSchoolId();
   let query = client
     .from("audit_logs")
@@ -4474,6 +5147,7 @@ export const syncUpcomingFeeReminders = async (
   role: string | null,
 ) => {
   if (!userId || !role) return;
+  if (!databaseClient) return;
 
   const cutoffDate = addDaysToDateString(getIndiaTodayIso(), 3);
   const staffWorkspace =
@@ -4528,7 +5202,7 @@ export const syncUpcomingFeeReminders = async (
     return;
   }
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client
     .from("notifications")
     .upsert(notificationRows, { onConflict: "dedupe_key", ignoreDuplicates: true });
@@ -4542,7 +5216,35 @@ export const listNotificationsForUser = async (
 ): Promise<NotificationRecord[]> => {
   if (!userId || !role) return [];
 
-  const client = requireSupabase();
+  if (firebaseDb && !databaseClient) {
+    const schoolId = getCurrentSchoolId();
+    if (!schoolId) return [];
+
+    const docs = await getFirestoreSchoolScopedDocs("notifications", schoolId);
+    const rows = docs
+      .map((item) => mapFirebaseNotificationRow(item.id, item.data))
+      .filter((row) => {
+        if (String(row.user_id ?? "") === userId) return true;
+        if (role !== ROLES.STAFF) return false;
+        return false;
+      })
+      .sort((left, right) => String(right.created_at ?? "").localeCompare(String(left.created_at ?? "")));
+
+    return rows.map((row) => ({
+      id: row.id,
+      type: row.type ?? "NOTICE",
+      module: row.module ?? null,
+      message: row.message ?? "",
+      userId: row.user_id ?? null,
+      receiverId: row.receiver_id,
+      relatedLeaveId: row.related_leave_id,
+      relatedFeeId: row.related_fee_id ?? null,
+      isRead: Boolean(row.is_read),
+      createdAt: row.created_at,
+    }));
+  }
+
+  const client = requireDatabaseClient();
   const filters = [`user_id.eq.${userId}`];
 
   if (role === ROLES.STAFF) {
@@ -4584,7 +5286,30 @@ export const getUnreadNotificationCount = async (
 };
 
 export const markNotificationAsRead = async (notificationId: string) => {
-  const client = requireSupabase();
+  if (firebaseDb && !databaseClient) {
+    try {
+      await firebaseUpdateDoc(firebaseDoc(firebaseDb, "notifications", notificationId), {
+        isRead: true,
+        is_read: true,
+      });
+    } catch (error) {
+      if (!isFirebasePermissionError(error)) {
+        throw error;
+      }
+      await setFirestoreDocumentThroughServer(
+        "notifications",
+        notificationId,
+        {
+          isRead: true,
+          is_read: true,
+        },
+        { schoolId: getCurrentSchoolId(), merge: true },
+      );
+    }
+    return;
+  }
+
+  const client = requireDatabaseClient();
   const { error } = await client.from("notifications").update({ is_read: true }).eq("id", notificationId);
   if (error) throw new Error(error.message);
 };
@@ -4598,7 +5323,7 @@ export const listTimetableImpacts = async (filters?: {
   dates?: string[];
   statuses?: Array<TimetableImpactRecord["status"]>;
 }): Promise<TimetableImpactRecord[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   let query = client
     .from("timetable_adjustments")
     .select(
@@ -4653,7 +5378,7 @@ export const getLeaveImpactDetail = async (leaveId: string): Promise<LeaveImpact
 };
 
 export const listSalary = async (): Promise<SalaryRecord[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const modernQuery = await client
     .from("salary")
     .select("id, staff_id, amount, month, status")
@@ -4694,7 +5419,7 @@ export const getSalaryDetail = async (salaryId: string) => {
 };
 
 export const createSalary = async (values: SalaryFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const modernInsert = await client
     .from("salary")
     .insert({
@@ -4730,7 +5455,7 @@ export const createSalary = async (values: SalaryFormValues) => {
 };
 
 export const updateSalary = async (salaryId: string, values: SalaryFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const existing = await getSalaryDetail(salaryId);
   const modernUpdate = await client
     .from("salary")
@@ -4764,7 +5489,7 @@ export const updateSalary = async (salaryId: string, values: SalaryFormValues) =
 
 
 export const paySalary = async (salaryId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client.from("salary").update({ status: "Paid" }).eq("id", salaryId);
   if (error) throw new Error(error.message);
   const salary = await getSalaryDetail(salaryId);
@@ -4773,7 +5498,7 @@ export const paySalary = async (salaryId: string) => {
 };
 
 export const deleteSalary = async (salaryId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client.from("salary").delete().eq("id", salaryId);
   if (error) throw new Error(error.message);
   await logAuditEvent("DELETE", "SALARY", salaryId);
@@ -4789,7 +5514,7 @@ const mapVehicle = (row: VehicleRow): VehicleRecord => ({
 });
 
 const fetchVehicleRows = async () => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const modern = await client
     .from("vehicles")
     .select("id, vehicle_number, vehicle_name, driver_name, driver_phone, capacity, status")
@@ -4824,7 +5549,7 @@ export const getVehicleDetail = async (vehicleId: string): Promise<VehicleDetail
 };
 
 export const createVehicle = async (values: VehicleFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("vehicles")
     .insert({
@@ -4858,7 +5583,7 @@ export const createVehicle = async (values: VehicleFormValues) => {
 };
 
 export const updateVehicle = async (vehicleId: string, values: VehicleFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("vehicles")
     .update({
@@ -4894,14 +5619,14 @@ export const updateVehicle = async (vehicleId: string, values: VehicleFormValues
 };
 
 export const deleteVehicle = async (vehicleId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client.from("vehicles").delete().eq("id", vehicleId);
   if (error) throw new Error(error.message);
   await logAuditEvent("DELETE", "VEHICLE", vehicleId);
 };
 
 export const listTransportRoutes = async (): Promise<RouteRecord[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("routes")
     .select("id, route_name, stops, vehicle_id")
@@ -4934,7 +5659,7 @@ export const getRouteDetail = async (routeId: string): Promise<RouteDetail> => {
 };
 
 export const createRoute = async (values: RouteFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("routes")
     .insert({
@@ -4951,7 +5676,7 @@ export const createRoute = async (values: RouteFormValues) => {
 };
 
 export const updateRoute = async (routeId: string, values: RouteFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client
     .from("routes")
     .update({
@@ -4967,7 +5692,7 @@ export const updateRoute = async (routeId: string, values: RouteFormValues) => {
 };
 
 export const deleteRoute = async (routeId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client.from("routes").delete().eq("id", routeId);
   if (error) throw new Error(error.message);
   await logAuditEvent("DELETE", "ROUTE", routeId);
@@ -4986,7 +5711,7 @@ const mapApplicant = (row: ApplicantRow): ApplicantRecord => ({
 });
 
 export const listApplicants = async (): Promise<ApplicantRecord[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("applicants")
     .select("id, name, student_name, email, class, class_applied, status, parent_name, parent_email, parent_phone, created_at")
@@ -5001,7 +5726,7 @@ export const listApplicants = async (): Promise<ApplicantRecord[]> => {
 };
 
 export const getApplicantDetail = async (applicantId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("applicants")
     .select("id, name, student_name, email, class, class_applied, status, parent_name, parent_email, parent_phone, created_at")
@@ -5022,7 +5747,7 @@ export const getApplicantDetail = async (applicantId: string) => {
 };
 
 export const createApplicant = async (values: ApplicantFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("applicants")
     .insert({
@@ -5059,7 +5784,7 @@ export const createApplicant = async (values: ApplicantFormValues) => {
 };
 
 export const updateApplicant = async (applicantId: string, values: ApplicantFormValues) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("applicants")
     .update({
@@ -5102,7 +5827,7 @@ export const updateApplicant = async (applicantId: string, values: ApplicantForm
 };
 
 export const deleteApplicant = async (applicantId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client.from("applicants").delete().eq("id", applicantId);
   if (error) throw new Error(error.message);
   await logAuditEvent("DELETE", "APPLICANT", applicantId);
@@ -5116,7 +5841,7 @@ export const approveApplicant = async (values: ApplicantApprovalValues) => {
 };
 
 export const rejectApplicant = async (applicantId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("applicants")
     .update({ status: "Rejected" })
@@ -5166,7 +5891,55 @@ const formatActivityTime = (value: string | null | undefined) => {
 };
 
 export const getDashboardOverview = async (): Promise<DashboardOverview> => {
-  const client = requireSupabase();
+  if (firebaseDb && !databaseClient) {
+    const [students, staff, classes] = await Promise.all([listStudents(), listStaff(), listClasses()]);
+
+    const stats: DashboardMetric[] = [
+      {
+        label: "Total Students",
+        value: String(students.length),
+        detail: "Across all active classes",
+        path: "/dashboard/students",
+      },
+      {
+        label: "Total Teachers",
+        value: String(staff.length),
+        detail: "Teaching faculty and coordinators",
+        path: "/dashboard/staff",
+      },
+      {
+        label: "Total Classes",
+        value: String(classes.length),
+        detail: "Mapped across sections and streams",
+        path: "/dashboard/classes",
+      },
+      {
+        label: "Fees Collected",
+        value: formatCurrency(0),
+        detail: "Billing module is still being migrated to Firebase",
+        path: "/dashboard/fees",
+      },
+    ];
+
+    const recentActivity: DashboardActivity[] = [
+      ...students.slice(0, 3).map((student) => ({
+        module: "Students",
+        owner: student.name,
+        status: "Available",
+        time: student.createdAt ? formatActivityTime(student.createdAt) : "-",
+      })),
+      ...staff.slice(0, 3).map((member) => ({
+        module: "Staff",
+        owner: member.name,
+        status: member.role || "Staff",
+        time: member.createdAt ? formatActivityTime(member.createdAt) : "-",
+      })),
+    ].slice(0, 6);
+
+    return { stats, recentActivity };
+  }
+
+  const client = requireDatabaseClient();
   const examActivityPromise = listExamActivityRows();
 
   const [
@@ -5417,7 +6190,7 @@ const getTimetableDurationMinutes = (startTime: string, endTime: string) =>
   timetableTimeToMinutes(endTime) - timetableTimeToMinutes(startTime);
 
 const getTimetableRowById = async (slotId: string): Promise<TimetableRow> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("timetable")
     .select("id, class, section, subject_id, teacher_id, day, start_time, end_time, is_break, break_type, break_label, is_cancelled, cancellation_reason")
@@ -5448,7 +6221,7 @@ const shiftRowsForClassDay = async (
 ) => {
   if (deltaMinutes === 0) return;
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const rowsToShift = rows
     .filter((row) => normalizeTime(row.start_time) >= thresholdTime)
     .sort((a, b) =>
@@ -5479,7 +6252,7 @@ const syncSchoolWideBreakForClassDay = async (
   values: TimetableFormValues,
   previousBreakGroup?: { startTime: string; endTime: string; breakType: "Short Break" | "Lunch Break" | null; breakLabel: string | null },
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   let rows = await getClassDayTimetableRows(className, section, day);
 
   if (previousBreakGroup) {
@@ -5555,7 +6328,7 @@ const removeBreakGroupForClassDay = async (
   day: TimetableDay,
   breakGroup: { startTime: string; endTime: string; breakType: "Short Break" | "Lunch Break" | null; breakLabel: string | null },
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const rows = await getClassDayTimetableRows(className, section, day);
   const breakRows = rows.filter((row) => isMatchingBreakGroup(row, breakGroup));
 
@@ -5609,7 +6382,7 @@ const syncSchoolWideBreak = async (
   values: TimetableFormValues,
   previousBreakGroup?: { startTime: string; endTime: string; breakType: "Short Break" | "Lunch Break" | null; breakLabel: string | null },
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data: existingBreakTypes, error: existingBreakTypesError } = await client
     .from("timetable")
     .select("break_type")
@@ -5643,7 +6416,7 @@ const syncSchoolWideBreak = async (
 };
 
 export const listTimetableClassOptions = async (): Promise<TimetableClassOption[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const [classResult, studentResult, staffResult, timetableResult] = await Promise.all([
     client.from("classes").select("class_name, section"),
     client.from("students").select("class, section"),
@@ -5728,7 +6501,7 @@ export const getTimetableAccess = async (
     return emptyTimetableAccess();
   }
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("staff")
     .select("is_class_coordinator, assigned_class, assigned_section")
@@ -5774,7 +6547,7 @@ export const loadTimetable = async (
   className: string,
   section: string,
 ): Promise<TimetableSlotRecord[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("timetable")
     .select("id, class, section, subject_id, teacher_id, day, start_time, end_time, is_break, break_type, break_label, is_cancelled, cancellation_reason")
@@ -5802,7 +6575,7 @@ export const listTimetableSlots = async (filters?: {
     }
   }
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   let query = client
     .from("timetable")
     .select("id, class, section, subject_id, teacher_id, day, start_time, end_time, is_break, break_type, break_label, is_cancelled, cancellation_reason")
@@ -5852,7 +6625,7 @@ const checkTimetableConflicts = async (
   values: TimetableFormValues,
   excludeId?: string,
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const teacherQuery = client
     .from("timetable")
     .select("id")
@@ -5906,7 +6679,7 @@ const mapTimetableWriteError = (message: string) => {
 };
 
 const getClassDayTimetableRows = async (className: string, section: string, day: string): Promise<TimetableRow[]> => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("timetable")
     .select("id, class, section, subject_id, teacher_id, day, start_time, end_time, is_break, break_type, break_label, is_cancelled, cancellation_reason")
@@ -5932,7 +6705,7 @@ const assertTimetableRowConflicts = async (
   },
   excludedIds: string[],
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
 
   if (!candidate.isBreak && candidate.teacherId) {
     let teacherQuery = client
@@ -6023,7 +6796,7 @@ const shiftFollowingClassDaySlots = async (
     );
   }
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const orderedRows = [...shiftedRows].sort((a, b) =>
     deltaMinutes > 0
       ? b.nextStartTime.localeCompare(a.nextStartTime)
@@ -6044,7 +6817,7 @@ const shiftFollowingClassDaySlots = async (
 };
 
 export const getTimetableImpactById = async (impactId: string) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("timetable_adjustments")
     .select(
@@ -6067,7 +6840,7 @@ const checkTimetableImpactConflicts = async (
     replacementEndTime: string;
   },
 ) => {
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const impactDay = dayFromDate(impact.impactDate);
 
   const teacherQuery = client
@@ -6164,7 +6937,7 @@ export const rescheduleTimetableImpact = async (
     replacementEndTime,
   });
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client
     .from("timetable_adjustments")
     .update({
@@ -6194,7 +6967,7 @@ export const cancelTimetableImpact = async (
     await assertTimetableWriteAccess(context.userId, context.role, impact.className, impact.section);
   }
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { error } = await client
     .from("timetable_adjustments")
     .update({
@@ -6228,7 +7001,7 @@ export const createTimetableSlot = async (
   }
   await checkTimetableConflicts(values);
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("timetable")
     .insert({
@@ -6294,7 +7067,7 @@ export const updateTimetableSlot = async (
     await checkTimetableConflicts(values, slotId);
   }
 
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("timetable")
     .update({
@@ -6327,7 +7100,7 @@ export const deleteTimetableSlot = async (
   if (context?.className && context?.section) {
     await assertTimetableWriteAccess(context.userId, context.role, context.className, context.section);
   }
-  const client = requireSupabase();
+  const client = requireDatabaseClient();
   if (Boolean(existingRow.is_break)) {
     const breakGroup = {
       startTime: normalizeTime(existingRow.start_time),

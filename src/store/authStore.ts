@@ -1,6 +1,13 @@
 import { create } from "zustand";
-import type { Session } from "@supabase/supabase-js";
 import type { AppRole } from "../config/roles";
+
+export type AppSession = {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: number | null;
+  uid: string;
+  email: string | null;
+};
 
 export type CurrentSchool = {
   id: string;
@@ -25,12 +32,12 @@ type AuthState = {
   role: AppRole | null;
   school: CurrentSchool | null;
   loading: boolean;
-  session: Session | null;
+  session: AppSession | null;
   setAuth: (payload: {
     user: AuthUser | null;
     role: AppRole | null;
     school?: CurrentSchool | null;
-    session?: Session | null;
+    session?: AppSession | null;
   }) => void;
   setLoading: (loading: boolean) => void;
   logout: () => void;

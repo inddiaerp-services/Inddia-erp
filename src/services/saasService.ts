@@ -1,6 +1,7 @@
-import { supabase } from "./supabaseClient";
+import { databaseClient } from "./databaseClient";
+import { firebaseAuth } from "./firebaseClient";
 import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../utils/adminApi";
-import { authStore } from "../store/authStore";
+import { authStore, type AppSession } from "../store/authStore";
 import type {
   BillingCreateValues,
   BillingDocumentRecord,
@@ -146,44 +147,58 @@ type PlanChangeRequestRow = {
   created_at: string | null;
 };
 
-const requireSupabase = () => {
-  if (!supabase) {
-    throw new Error("Supabase is not configured. Add your project URL and anon key.");
+const requireDatabaseClient = () => {
+  if (!databaseClient) {
+    throw new Error("Database client is not configured. Add your backend environment values.");
   }
 
-  return supabase;
+  return databaseClient;
 };
 
 const getActiveSession = async () => {
-  const client = requireSupabase();
-  const {
-    data: { session },
-  } = await client.auth.getSession();
+  const currentSession = authStore.getState().session;
+  if (currentSession?.accessToken) {
+    return currentSession;
+  }
 
-  if (session?.access_token) {
+  if (firebaseAuth?.currentUser) {
+    const session: AppSession = {
+      accessToken: await firebaseAuth.currentUser.getIdToken(),
+      refreshToken: firebaseAuth.currentUser.refreshToken || null,
+      expiresAt: null,
+      uid: firebaseAuth.currentUser.uid,
+      email: firebaseAuth.currentUser.email,
+    };
+    authStore.getState().setAuth({
+      user: authStore.getState().user,
+      role: authStore.getState().role,
+      school: authStore.getState().school,
+      session,
+    });
     return session;
   }
 
-  return authStore.getState().session;
+  return null;
 };
 
 const refreshActiveSession = async () => {
-  const client = requireSupabase();
-  const currentSession = authStore.getState().session ?? (await client.auth.getSession()).data.session;
-
-  if (!currentSession?.refresh_token) {
+  if (!firebaseAuth?.currentUser) {
     return null;
   }
 
-  const {
-    data: { session },
-    error,
-  } = await client.auth.refreshSession({ refresh_token: currentSession.refresh_token });
-
-  if (error) {
-    return null;
-  }
-
+  const session: AppSession = {
+    accessToken: await firebaseAuth.currentUser.getIdToken(true),
+    refreshToken: firebaseAuth.currentUser.refreshToken || null,
+    expiresAt: null,
+    uid: firebaseAuth.currentUser.uid,
+    email: firebaseAuth.currentUser.email,
+  };
+  authStore.getState().setAuth({
+    user: authStore.getState().user,
+    role: authStore.getState().role,
+    school: authStore.getState().school,
+    session,
+  });
   return session;
 };
 
@@ -243,13 +258,13 @@ const parseAdminApiResponse = async <T>(response: Response) => {
 const invokePlatformAction = async <T>(action: string, payload: Record<string, unknown>) => {
   const session = await getActiveSession();
 
-  if (!session?.access_token) {
+  if (!session?.accessToken) {
     throw new Error("Admin session not found. Sign in again.");
   }
 
   let response: Response;
   try {
-    response = await postToAdminApi(JSON.stringify({ action, payload }), session.access_token);
+    response = await postToAdminApi(JSON.stringify({ action, payload }), session.accessToken);
   } catch (error) {
     throw error;
   }
@@ -261,15 +276,15 @@ const invokePlatformAction = async <T>(action: string, payload: Record<string, u
 
   if (isUnauthorized) {
     const refreshedSession = await refreshActiveSession();
-    if (refreshedSession?.access_token && refreshedSession.access_token !== session.access_token) {
-      response = await postToAdminApi(JSON.stringify({ action, payload }), refreshedSession.access_token);
+    if (refreshedSession?.accessToken && refreshedSession.accessToken !== session.accessToken) {
+      response = await postToAdminApi(JSON.stringify({ action, payload }), refreshedSession.accessToken);
       result = await parseAdminApiResponse<T>(response);
     }
   }
 
   if (!response.ok || result.error) {
     const backendMissingMessage =
-      "Admin setup is incomplete. Create `.env.server` with `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`, then run `npm run dev` or `npm run dev:server`.";
+      "Admin setup is incomplete. Configure `.env.server` with Firebase Admin credentials and any required legacy database credentials, then run `npm run dev` or `npm run dev:server`.";
 
     if (response.status >= 500) {
       throw new Error(

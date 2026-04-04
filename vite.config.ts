@@ -12,7 +12,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           "react-vendor": ["react", "react-dom", "react-router-dom", "zustand", "clsx"],
-          supabase: ["@supabase/supabase-js"],
           charts: ["recharts"],
           documents: ["jspdf", "xlsx"],
         },
@@ -43,7 +42,7 @@ export default defineConfig({
             const message =
               error instanceof Error
                 ? error.message
-                : "Admin setup is incomplete. Create `.env.server` with backend Supabase credentials.";
+                : "Admin setup is incomplete. Configure `.env.server` with backend credentials.";
 
             res.statusCode = 503;
             res.setHeader("Content-Type", "application/json");

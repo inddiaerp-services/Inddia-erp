@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import Home from "./pages/home/Home";
 import Login from "./pages/auth/Login";
@@ -6,7 +7,7 @@ import DashboardHome from "./pages/dashboard/Home";
 import ChildPage from "./pages/dashboard/Child";
 import { authStore } from "./store/authStore";
 import { hydrateAuthSession, restoreSession } from "./services/authService";
-import { supabase } from "./services/supabaseClient";
+import { firebaseAuth } from "./services/firebaseClient";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import ProtectedRoute from "./components/layout/ProtectedRoute";
 import RoleProtectedRoute from "./components/layout/RoleProtectedRoute";
@@ -65,8 +66,7 @@ import {
   HrDashboardPage,
   TransportDashboardPage,
 } from "./pages/dashboard/DepartmentDashboards";
-import type { Session } from "@supabase/supabase-js";
-import type { AuthUser, CurrentSchool } from "./store/authStore";
+import type { AuthUser, AppSession, CurrentSchool } from "./store/authStore";
 import type { AppRole } from "./config/roles";
 import { STAFF_WORKSPACES } from "./config/staffWorkspaces";
 import SubscriptionExpiredPage from "./pages/auth/SubscriptionExpired";
@@ -121,11 +121,10 @@ function App() {
       user: AuthUser | null;
       role: AppRole | null;
       school?: CurrentSchool | null;
-      session: Session | null;
+      session: AppSession | null;
     }) => {
       const currentState = authStore.getState();
 
-      // Do not let a late startup restore wipe out a user who already signed in.
       if (currentState.user && !payload.user) {
         return;
       }
@@ -166,19 +165,17 @@ function App() {
 
     void initialize();
 
-    if (!supabase) {
+    if (!firebaseAuth) {
       return () => {
         mounted = false;
       };
     }
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const subscription = onAuthStateChanged(firebaseAuth, (sessionUser: FirebaseUser | null) => {
       window.setTimeout(() => {
         if (!mounted || initializing) return;
 
-        if (!session?.user) {
+        if (!sessionUser) {
           const currentState = authStore.getState();
           if (!currentState.user?.isBootstrapAdmin) {
             logout();
@@ -189,7 +186,13 @@ function App() {
 
         void (async () => {
           try {
-            const restored = await hydrateAuthSession(session);
+            const currentState = authStore.getState();
+            if (currentState.user?.id === sessionUser.uid && currentState.session?.uid === sessionUser.uid) {
+              setLoading(false);
+              return;
+            }
+
+            const restored = await hydrateAuthSession(sessionUser);
             if (mounted) {
               safelyApplyAuth(restored);
             }
@@ -208,7 +211,7 @@ function App() {
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
+      subscription();
     };
   }, [logout, setAuth, setLoading]);
 
@@ -216,159 +219,159 @@ function App() {
     <>
       <ConnectivityBanner />
       <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/home" element={<Navigate to="/" replace />} />
+        <Route path="/" element={<Home />} />
+        <Route path="/home" element={<Navigate to="/" replace />} />
 
-      <Route element={<PublicRoute />}>
-        <Route path="/login" element={<Login />} />
-      </Route>
-
-      <Route element={<ProtectedRoute />}>
-        <Route path="/subscription-expired" element={<SubscriptionExpiredPage />} />
-
-        <Route element={<RoleProtectedRoute allowedRoles={[ROLES.SUPER_ADMIN]} />}>
-          <Route path="/super-admin" element={<DashboardLayout />}>
-            <Route index element={<Navigate to="/super-admin/dashboard" replace />} />
-            <Route path="dashboard" element={<SuperAdminDashboardPage />} />
-            <Route path="schools" element={<SuperAdminSchoolsPage />} />
-            <Route path="schools/new" element={<SuperAdminSchoolCreatePage />} />
-            <Route path="schools/:id" element={<SuperAdminSchoolProfilePage />} />
-            <Route path="schools/:id/edit" element={<SuperAdminSchoolEditPage />} />
-            <Route path="billing" element={<SuperAdminBillingPage />} />
-            <Route path="billing/new" element={<SuperAdminBillingCreatePage />} />
-            <Route path="billing/:schoolId/edit" element={<SuperAdminBillingEditPage />} />
-            <Route path="payments" element={<SuperAdminPaymentsPage />} />
-            <Route path="verification" element={<SuperAdminBillingRequestsPage />} />
-            <Route path="payments/:paymentId/edit" element={<SuperAdminPaymentEditPage />} />
-            <Route path="storage" element={<SuperAdminStoragePage />} />
-            <Route path="storage/:schoolId/edit" element={<SuperAdminStorageEditPage />} />
-            <Route path="audit-logs" element={<SuperAdminAuditLogsPage />} />
-          </Route>
+        <Route element={<PublicRoute />}>
+          <Route path="/login" element={<Login />} />
         </Route>
 
-        <Route path="/dashboard" element={<DashboardLayout />}>
-          <Route index element={<Navigate to="/dashboard/home" replace />} />
-          <Route path="home" element={<DashboardHome />} />
-          <Route
-            path="profile"
-            element={
-              <RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF, ROLES.STUDENT, ROLES.PARENT]} />
-            }
-          >
-            <Route index element={<ProfilePage />} />
-          </Route>
-          <Route
-            path="settings"
-            element={
-              <RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF, ROLES.STUDENT, ROLES.PARENT]} />
-            }
-          >
-            <Route index element={<SettingsPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/subscription-expired" element={<SubscriptionExpiredPage />} />
+
+          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.SUPER_ADMIN]} />}>
+            <Route path="/super-admin" element={<DashboardLayout />}>
+              <Route index element={<Navigate to="/super-admin/dashboard" replace />} />
+              <Route path="dashboard" element={<SuperAdminDashboardPage />} />
+              <Route path="schools" element={<SuperAdminSchoolsPage />} />
+              <Route path="schools/new" element={<SuperAdminSchoolCreatePage />} />
+              <Route path="schools/:id" element={<SuperAdminSchoolProfilePage />} />
+              <Route path="schools/:id/edit" element={<SuperAdminSchoolEditPage />} />
+              <Route path="billing" element={<SuperAdminBillingPage />} />
+              <Route path="billing/new" element={<SuperAdminBillingCreatePage />} />
+              <Route path="billing/:schoolId/edit" element={<SuperAdminBillingEditPage />} />
+              <Route path="payments" element={<SuperAdminPaymentsPage />} />
+              <Route path="verification" element={<SuperAdminBillingRequestsPage />} />
+              <Route path="payments/:paymentId/edit" element={<SuperAdminPaymentEditPage />} />
+              <Route path="storage" element={<SuperAdminStoragePage />} />
+              <Route path="storage/:schoolId/edit" element={<SuperAdminStorageEditPage />} />
+              <Route path="audit-logs" element={<SuperAdminAuditLogsPage />} />
+            </Route>
           </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN]} />}>
-            <Route path="audit-logs" element={<AuditLogsPage />} />
-            <Route path="classes" element={<ClassesPage />} />
-            <Route path="holidays" element={<HolidaysPage />} />
-            <Route path="classes/:id" element={<ClassDetailPage />} />
-            <Route path="subscription" element={<SchoolSubscriptionPage />} />
-            <Route path="platform-payments" element={<SchoolPaySuperAdminPage />} />
-            <Route path="billing-history" element={<SchoolBillingHistoryPage />} />
-            <Route path="invoices" element={<SchoolInvoicesPage />} />
-            <Route path="renewal-reminders" element={<SchoolRenewalRemindersPage />} />
-            <Route path="plan-upgrade" element={<SchoolPlanUpgradePage />} />
-            <Route path="usage" element={<SchoolUsageDashboardPage />} />
-            <Route path="school-billing-profile" element={<SchoolBillingProfilePage />} />
-          </Route>
+          <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route index element={<Navigate to="/dashboard/home" replace />} />
+            <Route path="home" element={<DashboardHome />} />
+            <Route
+              path="profile"
+              element={
+                <RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF, ROLES.STUDENT, ROLES.PARENT]} />
+              }
+            >
+              <Route index element={<ProfilePage />} />
+            </Route>
+            <Route
+              path="settings"
+              element={
+                <RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF, ROLES.STUDENT, ROLES.PARENT]} />
+              }
+            >
+              <Route index element={<SettingsPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.ADMISSION]} />}>
-            <Route path="students" element={<StudentsPage />} />
-            <Route path="students/:id" element={<StudentDetailPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN]} />}>
+              <Route path="audit-logs" element={<AuditLogsPage />} />
+              <Route path="classes" element={<ClassesPage />} />
+              <Route path="holidays" element={<HolidaysPage />} />
+              <Route path="classes/:id" element={<ClassDetailPage />} />
+              <Route path="subscription" element={<SchoolSubscriptionPage />} />
+              <Route path="platform-payments" element={<SchoolPaySuperAdminPage />} />
+              <Route path="billing-history" element={<SchoolBillingHistoryPage />} />
+              <Route path="invoices" element={<SchoolInvoicesPage />} />
+              <Route path="renewal-reminders" element={<SchoolRenewalRemindersPage />} />
+              <Route path="plan-upgrade" element={<SchoolPlanUpgradePage />} />
+              <Route path="usage" element={<SchoolUsageDashboardPage />} />
+              <Route path="school-billing-profile" element={<SchoolBillingProfilePage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.HR]} />}>
-            <Route path="hr" element={<HrDashboardPage />} />
-            <Route path="employees" element={<EmployeesPage />} />
-            <Route path="staff-attendance" element={<StaffAttendancePage />} />
-            <Route path="employees/:id" element={<EmployeeDetailPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.ADMISSION]} />}>
+              <Route path="students" element={<StudentsPage />} />
+              <Route path="students/:id" element={<StudentDetailPage />} />
+            </Route>
 
-          <Route
-            element={
-              <RoleProtectedRoute
-                allowedRoles={[ROLES.ADMIN, ROLES.STAFF]}
-                allowedStaffWorkspaces={[STAFF_WORKSPACES.TEACHER, STAFF_WORKSPACES.HR]}
-              />
-            }
-          >
-            <Route path="leaves" element={<LeavesPage />} />
-            <Route path="leaves/:id" element={<LeaveDetailPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.HR]} />}>
+              <Route path="hr" element={<HrDashboardPage />} />
+              <Route path="employees" element={<EmployeesPage />} />
+              <Route path="staff-attendance" element={<StaffAttendancePage />} />
+              <Route path="employees/:id" element={<EmployeeDetailPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.ACCOUNTS]} />}>
-            <Route path="accounts" element={<AccountsDashboardPage />} />
-            <Route path="salary" element={<SalaryPage />} />
-            <Route path="salary/:id" element={<SalaryDetailPage />} />
-          </Route>
+            <Route
+              element={
+                <RoleProtectedRoute
+                  allowedRoles={[ROLES.ADMIN, ROLES.STAFF]}
+                  allowedStaffWorkspaces={[STAFF_WORKSPACES.TEACHER, STAFF_WORKSPACES.HR]}
+                />
+              }
+            >
+              <Route path="leaves" element={<LeavesPage />} />
+              <Route path="leaves/:id" element={<LeaveDetailPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.TRANSPORT]} />}>
-            <Route path="transport" element={<TransportDashboardPage />} />
-            <Route path="vehicles" element={<VehiclesPage />} />
-            <Route path="vehicles/:id" element={<VehicleDetailPage />} />
-            <Route path="routes" element={<RoutesPage />} />
-            <Route path="routes/:id" element={<RouteDetailPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.ACCOUNTS]} />}>
+              <Route path="accounts" element={<AccountsDashboardPage />} />
+              <Route path="salary" element={<SalaryPage />} />
+              <Route path="salary/:id" element={<SalaryDetailPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.ADMISSION]} />}>
-            <Route path="admission" element={<AdmissionDashboardPage />} />
-            <Route path="applicants" element={<ApplicantsPage />} />
-            <Route path="applicants/:id" element={<ApplicantDetailPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.TRANSPORT]} />}>
+              <Route path="transport" element={<TransportDashboardPage />} />
+              <Route path="vehicles" element={<VehiclesPage />} />
+              <Route path="vehicles/:id" element={<VehicleDetailPage />} />
+              <Route path="routes" element={<RoutesPage />} />
+              <Route path="routes/:id" element={<RouteDetailPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN]} />}>
-            <Route path="staff" element={<StaffPage />} />
-            <Route path="staff/:id" element={<StaffDetailPage />} />
-            <Route path="subjects" element={<SubjectsPage />} />
-            <Route path="subjects/:id" element={<SubjectDetailPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.ADMISSION]} />}>
+              <Route path="admission" element={<AdmissionDashboardPage />} />
+              <Route path="applicants" element={<ApplicantsPage />} />
+              <Route path="applicants/:id" element={<ApplicantDetailPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} />}>
-            <Route path="analytics" element={<AnalyticsPage />} />
-            <Route path="notifications" element={<NotificationsPage />} />
-            <Route path="leave-impact/:id" element={<LeaveImpactPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN]} />}>
+              <Route path="staff" element={<StaffPage />} />
+              <Route path="staff/:id" element={<StaffDetailPage />} />
+              <Route path="subjects" element={<SubjectsPage />} />
+              <Route path="subjects/:id" element={<SubjectDetailPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF, ROLES.STUDENT, ROLES.PARENT]} allowedStaffWorkspaces={[STAFF_WORKSPACES.TEACHER]} />}>
-            <Route path="attendance" element={<RoleAttendancePage />} />
-            <Route path="attendance/:id" element={<AttendanceDetailPage />} />
-            <Route path="results" element={<RoleResultsPage />} />
-            <Route path="results/:id" element={<ResultDetailPage />} />
-            <Route path="timetable" element={<TimetableLandingPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} />}>
+              <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="leave-impact/:id" element={<LeaveImpactPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.TEACHER]} />}>
-            <Route path="timetable/coordinator" element={<CoordinatorTimetablePage />} />
-            <Route path="timetable/my" element={<MyTeachingTimetablePage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF, ROLES.STUDENT, ROLES.PARENT]} allowedStaffWorkspaces={[STAFF_WORKSPACES.TEACHER]} />}>
+              <Route path="attendance" element={<RoleAttendancePage />} />
+              <Route path="attendance/:id" element={<AttendanceDetailPage />} />
+              <Route path="results" element={<RoleResultsPage />} />
+              <Route path="results/:id" element={<ResultDetailPage />} />
+              <Route path="timetable" element={<TimetableLandingPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.TEACHER]} />}>
-            <Route path="exams" element={<RoleExamsPage />} />
-            <Route path="exams/group/:groupId" element={<ExamGroupDetailPage />} />
-            <Route path="exams/:id" element={<ExamDetailPage />} />
-            <Route path="exams/:id/subjects" element={<ExamSubjectsPage />} />
-            <Route path="exams/:id/marks" element={<ExamMarksPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.TEACHER]} />}>
+              <Route path="timetable/coordinator" element={<CoordinatorTimetablePage />} />
+              <Route path="timetable/my" element={<MyTeachingTimetablePage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF, ROLES.STUDENT, ROLES.PARENT]} allowedStaffWorkspaces={[STAFF_WORKSPACES.ACCOUNTS]} />}>
-            <Route path="fees" element={<RoleFeesPage />} />
-            <Route path="fees/:id" element={<FeeDetailPage />} />
-          </Route>
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF]} allowedStaffWorkspaces={[STAFF_WORKSPACES.TEACHER]} />}>
+              <Route path="exams" element={<RoleExamsPage />} />
+              <Route path="exams/group/:groupId" element={<ExamGroupDetailPage />} />
+              <Route path="exams/:id" element={<ExamDetailPage />} />
+              <Route path="exams/:id/subjects" element={<ExamSubjectsPage />} />
+              <Route path="exams/:id/marks" element={<ExamMarksPage />} />
+            </Route>
 
-          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.PARENT]} />}>
-            <Route path="child" element={<ChildPage />} />
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.STAFF, ROLES.STUDENT, ROLES.PARENT]} allowedStaffWorkspaces={[STAFF_WORKSPACES.ACCOUNTS]} />}>
+              <Route path="fees" element={<RoleFeesPage />} />
+              <Route path="fees/:id" element={<FeeDetailPage />} />
+            </Route>
+
+            <Route element={<RoleProtectedRoute allowedRoles={[ROLES.PARENT]} />}>
+              <Route path="child" element={<ChildPage />} />
+            </Route>
           </Route>
         </Route>
-      </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

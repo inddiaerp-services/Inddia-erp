@@ -20,6 +20,10 @@ import { authStore } from "../../store/authStore";
 import {
   getChildrenByParentUserId,
   getDashboardOverview,
+  isFirebaseOnlyMode,
+  listClasses,
+  listStaff,
+  listStudents,
   getStaffByUserId,
   getStudentByUserId,
   listAttendance,
@@ -124,6 +128,25 @@ export const DashboardHome = () => {
           if (!staff) throw new Error("Staff profile not found.");
           const workspace = normalizeStaffWorkspace(staff.role);
 
+          if (isFirebaseOnlyMode) {
+            const [students, staffRows, classes] = await Promise.all([listStudents(), listStaff(), listClasses()]);
+            setStats([
+              { label: "Workspace", value: workspace === STAFF_WORKSPACES.TEACHER ? "Teacher" : workspace, detail: "Firebase workspace mode", path: "/dashboard/profile" },
+              { label: "Students", value: String(students.length), detail: "Students available in this school", path: "/dashboard/students" },
+              { label: "Staff", value: String(staffRows.length), detail: "Team members available in this school", path: "/dashboard/staff" },
+              { label: "Classes", value: String(classes.length), detail: "Classes available in this school", path: "/dashboard/classes" },
+            ]);
+            setRecentActivity([
+              { module: "Workspace", owner: staff.name, status: staff.role || "Staff", time: "Firebase mode" },
+              { module: "Students", owner: `${students.length} records`, status: "Available", time: "/dashboard/students" },
+              { module: "Staff", owner: `${staffRows.length} records`, status: "Available", time: "/dashboard/staff" },
+              { module: "Classes", owner: `${classes.length} records`, status: "Available", time: "/dashboard/classes" },
+            ]);
+            setError("");
+            setLoading(false);
+            return;
+          }
+
           if (workspace === STAFF_WORKSPACES.HR) {
             const overview = await getDashboardOverview();
             setStats([
@@ -202,6 +225,22 @@ export const DashboardHome = () => {
         } else if (role === ROLES.STUDENT) {
           const student = await getStudentByUserId(user.id);
           if (!student) throw new Error("Student profile not found.");
+
+          if (isFirebaseOnlyMode) {
+            setStats([
+              { label: "Student", value: student.name, detail: `${student.className ?? "-"} / ${student.section ?? "-"}`, path: "/dashboard/profile" },
+              { label: "Student ID", value: student.studentCode ?? "-", detail: "School record identifier", path: "/dashboard/profile" },
+              { label: "Class", value: student.className ?? "-", detail: "Assigned class", path: "/dashboard/profile" },
+              { label: "Section", value: student.section ?? "-", detail: "Assigned section", path: "/dashboard/profile" },
+            ]);
+            setRecentActivity([
+              { module: "Profile", owner: student.name, status: "Loaded", time: "Firebase mode" },
+            ]);
+            setError("");
+            setLoading(false);
+            return;
+          }
+
           const [attendance, results, fees, timetable] = await Promise.all([
             listAttendance({ className: student.className ?? undefined, section: student.section ?? undefined }),
             listResults(),
@@ -231,6 +270,22 @@ export const DashboardHome = () => {
         } else if (role === ROLES.PARENT) {
           const child = (await getChildrenByParentUserId(user.id))[0] ?? null;
           if (!child) throw new Error("No child linked to this parent account.");
+
+          if (isFirebaseOnlyMode) {
+            setStats([
+              { label: "Child", value: child.name, detail: `${child.className ?? "-"} / ${child.section ?? "-"}`, path: "/dashboard/child" },
+              { label: "Student ID", value: child.studentCode ?? "-", detail: "Linked student record", path: "/dashboard/child" },
+              { label: "Class", value: child.className ?? "-", detail: "Child assigned class", path: "/dashboard/child" },
+              { label: "Section", value: child.section ?? "-", detail: "Child assigned section", path: "/dashboard/child" },
+            ]);
+            setRecentActivity([
+              { module: "Child Profile", owner: child.name, status: "Loaded", time: "Firebase mode" },
+            ]);
+            setError("");
+            setLoading(false);
+            return;
+          }
+
           const [attendance, results, fees] = await Promise.all([
             listAttendance({ className: child.className ?? undefined, section: child.section ?? undefined }),
             listResults(),

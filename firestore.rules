@@ -1,0 +1,17 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Current app migration fix:
+    // allow authenticated access to Firestore so pages stop failing with
+    // "Missing or insufficient permissions." while the rest of the Firebase
+    // data layer is being finished.
+    match /{document=**} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

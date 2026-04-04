@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { createSign } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { firebaseAdminAuth, firebaseAdminDb, hasFirebaseAdminConfig } from "./firebaseAdmin.mjs";
 
 const loadEnvFile = (filename) => {
   const filepath = resolve(process.cwd(), filename);
@@ -24,9 +25,9 @@ const loadEnvFile = (filename) => {
 loadEnvFile(".env");
 loadEnvFile(".env.server");
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const databaseUrl = process.env.DATABASE_URL || "";
+const databaseAnonKey = process.env.DATABASE_ANON_KEY || "";
+const databaseServiceRoleKey = process.env.DATABASE_SERVICE_ROLE_KEY || "";
 const googleClientEmail = process.env.GOOGLE_CLIENT_EMAIL || "";
 const googlePrivateKey = (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 const googleCalendarId = process.env.GOOGLE_CALENDAR_ID || "";
@@ -40,18 +41,134 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
-const assertAdminEnv = () => {
-  if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
-    throw new Error("Missing backend Supabase env. Required: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY");
-  }
+const missingLegacyDatabaseMessage =
+  "This backend module is still being migrated to Firebase. Configure Firebase Admin in `.env.server` and use Firebase-backed pages only until the remaining legacy modules are rewritten.";
+
+const createMissingLegacyQueryBuilder = (state = { operation: "read", single: false, head: false, count: false }) => {
+  const proxyTarget = () => proxy;
+
+  const buildResult = () => {
+    if (state.operation === "write") {
+      return {
+        data: null,
+        error: { message: missingLegacyDatabaseMessage },
+        count: null,
+      };
+    }
+
+    if (state.head || state.count) {
+      return {
+        data: null,
+        error: null,
+        count: 0,
+      };
+    }
+
+    if (state.single) {
+      return {
+        data: null,
+        error: null,
+      };
+    }
+
+    return {
+      data: [],
+      error: null,
+    };
+  };
+
+  const proxy = new Proxy(proxyTarget, {
+    apply() {
+      return proxy;
+    },
+    get(_target, prop) {
+      if (prop === "then") {
+        const result = buildResult();
+        return (resolve, reject) => Promise.resolve(result).then(resolve, reject);
+      }
+
+      if (prop === "single" || prop === "maybeSingle") {
+        return () => createMissingLegacyQueryBuilder({ ...state, single: true });
+      }
+
+      if (prop === "select") {
+        return (_columns, options = {}) =>
+          createMissingLegacyQueryBuilder({
+            ...state,
+            operation: state.operation === "write" ? "write" : "read",
+            head: Boolean(options?.head),
+            count: Boolean(options?.count),
+          });
+      }
+
+      if (prop === "insert" || prop === "update" || prop === "delete" || prop === "upsert") {
+        return () => createMissingLegacyQueryBuilder({ ...state, operation: "write" });
+      }
+
+      if (
+        [
+          "eq",
+          "neq",
+          "in",
+          "order",
+          "limit",
+          "lte",
+          "gte",
+          "lt",
+          "gt",
+          "or",
+          "not",
+          "match",
+        ].includes(String(prop))
+      ) {
+        return () => createMissingLegacyQueryBuilder({ ...state });
+      }
+
+      return createMissingLegacyServiceProxy();
+    },
+  });
+
+  return proxy;
 };
 
-const service = (() => {
-  assertAdminEnv();
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
+const createMissingLegacyServiceProxy = () => {
+  const proxyTarget = () => {
+    throw new Error(missingLegacyDatabaseMessage);
+  };
+
+  return new Proxy(proxyTarget, {
+    apply() {
+      throw new Error(missingLegacyDatabaseMessage);
+    },
+    get(_target, prop) {
+      if (prop === "from") {
+        return () => createMissingLegacyQueryBuilder();
+      }
+
+      if (prop === "auth") {
+        return {
+          getUser: async () => {
+            throw new Error(missingLegacyDatabaseMessage);
+          },
+          admin: {
+            createUser: async () => ({ data: null, error: { message: missingLegacyDatabaseMessage } }),
+            updateUserById: async () => ({ error: { message: missingLegacyDatabaseMessage } }),
+            deleteUser: async () => ({ error: { message: missingLegacyDatabaseMessage } }),
+            listUsers: async () => ({ data: { users: [] }, error: { message: missingLegacyDatabaseMessage } }),
+          },
+        };
+      }
+
+      return createMissingLegacyServiceProxy();
+    },
   });
-})();
+};
+
+const service = databaseUrl && databaseAnonKey && databaseServiceRoleKey
+  ? createClient(databaseUrl, databaseServiceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : createMissingLegacyServiceProxy();
 
 const send = (res, status, body) => {
   res.writeHead(status, corsHeaders);
@@ -84,6 +201,18 @@ const readJson = (req) =>
 
 const cleanupUser = async (userId) => {
   if (!userId) return;
+
+  if (firebaseAdminAuth && hasFirebaseAdminConfig) {
+    try {
+      await firebaseAdminAuth.deleteUser(userId);
+      return;
+    } catch (error) {
+      if (String(error?.message ?? "").toLowerCase().includes("not found")) {
+        return;
+      }
+    }
+  }
+
   const { error } = await service.auth.admin.deleteUser(userId);
   if (error && !error.message.toLowerCase().includes("not found")) {
     throw new Error(error.message);
@@ -92,6 +221,10 @@ const cleanupUser = async (userId) => {
 
 const cleanupTable = async (table, column, value) => {
   if (!value) return;
+  if (firebaseAdminDb) {
+    await deleteFirestoreByField(table, column, value);
+    return;
+  }
   const { error } = await service.from(table).delete().eq(column, value);
   if (error) {
     throw new Error(error.message);
@@ -194,9 +327,610 @@ const getDuplicateEmailMessage = (email) => {
     : "This email address is already being used by another user.";
 };
 
-const ensurePublicUserEmailAvailable = async (email, excludedUserId = null) => {
+const getFirestoreField = (record, keys) => {
+  for (const key of keys) {
+    if (key in record) {
+      return record[key];
+    }
+  }
+  return undefined;
+};
+
+const getFirestoreString = (record, keys) => {
+  const value = getFirestoreField(record, keys);
+  if (value === null || value === undefined) return null;
+  return String(value);
+};
+
+const getFirestoreNumber = (record, keys) => {
+  const value = getFirestoreField(record, keys);
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getFirestoreUserPayload = (id, data) => ({
+  id,
+  name: getFirestoreString(data, ["name"]) ?? "INDDIA ERP User",
+  email: getFirestoreString(data, ["email"]),
+  role: getFirestoreString(data, ["role"]) ?? "staff",
+  school_id: getFirestoreString(data, ["schoolId", "school_id"]),
+});
+
+const getFirestoreSchoolPayload = (id, data) => ({
+  id,
+  name: getFirestoreString(data, ["name"]) ?? `School ${id.slice(0, 8)}`,
+  subscription_status: getFirestoreString(data, ["subscriptionStatus", "subscription_status"]) ?? "Trial",
+});
+
+const findFirestoreUserById = async (id) => {
+  if (!firebaseAdminDb) return null;
+  const snapshot = await firebaseAdminDb.collection("users").doc(id).get();
+  if (!snapshot.exists) return null;
+  return getFirestoreUserPayload(snapshot.id, snapshot.data() ?? {});
+};
+
+const findFirestoreUserByEmail = async (email) => {
+  if (!firebaseAdminDb || !email) return null;
+
+  const primary = await firebaseAdminDb.collection("users").where("email", "==", email).limit(1).get();
+  if (!primary.empty) {
+    const doc = primary.docs[0];
+    return getFirestoreUserPayload(doc.id, doc.data());
+  }
+
+  const legacy = await firebaseAdminDb.collection("users").where("email", "==", email.toLowerCase()).limit(1).get();
+  if (!legacy.empty) {
+    const doc = legacy.docs[0];
+    return getFirestoreUserPayload(doc.id, doc.data());
+  }
+
+  return null;
+};
+
+const hasFirestoreUserReference = async (collectionName, userId) => {
+  if (!firebaseAdminDb || !userId) return false;
+
+  const camel = await firebaseAdminDb.collection(collectionName).where("userId", "==", userId).limit(1).get();
+  if (!camel.empty) return true;
+
+  const snake = await firebaseAdminDb.collection(collectionName).where("user_id", "==", userId).limit(1).get();
+  return !snake.empty;
+};
+
+const cleanupStaleFirebaseAuthUserByEmail = async ({ email, role, schoolId }) => {
+  if (!firebaseAdminAuth || !firebaseAdminDb || !email) return false;
+
+  try {
+    const existingUser = await firebaseAdminAuth.getUserByEmail(email);
+    const existingProfile = await findFirestoreUserById(existingUser.uid);
+
+    if (!existingProfile) {
+      await cleanupUser(existingUser.uid);
+      return true;
+    }
+
+    const existingRole = String(existingProfile.role ?? "").trim().toLowerCase();
+    const existingSchoolId = String(existingProfile.school_id ?? "").trim() || null;
+    const requestedRole = String(role ?? "").trim().toLowerCase();
+    const requestedSchoolId = schoolId || null;
+
+    if (existingRole !== requestedRole || existingSchoolId !== requestedSchoolId) {
+      return false;
+    }
+
+    const hasLinkedRecord =
+      (existingRole === "staff" && (await hasFirestoreUserReference("staff", existingUser.uid))) ||
+      (existingRole === "parent" && (await hasFirestoreUserReference("parents", existingUser.uid))) ||
+      (existingRole === "student" && (await hasFirestoreUserReference("students", existingUser.uid))) ||
+      (existingRole === "admin" && (await hasFirestoreUserReference("users", existingUser.uid)));
+
+    if (hasLinkedRecord) {
+      return false;
+    }
+
+    await cleanupTable("users", "id", existingUser.uid);
+    await cleanupUser(existingUser.uid);
+    return true;
+  } catch (error) {
+    const message = String(error?.message ?? "").toLowerCase();
+    if (message.includes("no user record") || message.includes("not found")) {
+      return false;
+    }
+    throw error;
+  }
+};
+
+const cleanupStaleFirestoreUserByEmail = async ({ email, role, schoolId, excludedUserId = null }) => {
+  if (!firebaseAdminDb || !email) return false;
+
+  const byEmail = await findFirestoreUserByEmail(email);
+  if (!byEmail || byEmail.id === excludedUserId) {
+    return false;
+  }
+
+  const existingRole = String(byEmail.role ?? "").trim().toLowerCase();
+  const existingSchoolId = String(byEmail.school_id ?? "").trim() || null;
+  const requestedRole = String(role ?? "").trim().toLowerCase();
+  const requestedSchoolId = schoolId || null;
+
+  if (!requestedRole || existingRole !== requestedRole || existingSchoolId !== requestedSchoolId) {
+    return false;
+  }
+
+  const hasLinkedRecord =
+    (existingRole === "staff" && (await hasFirestoreUserReference("staff", byEmail.id))) ||
+    (existingRole === "parent" && (await hasFirestoreUserReference("parents", byEmail.id))) ||
+    (existingRole === "student" && (await hasFirestoreUserReference("students", byEmail.id))) ||
+    (existingRole === "admin" && (await hasFirestoreUserReference("schools", existingSchoolId)));
+
+  if (hasLinkedRecord) {
+    return false;
+  }
+
+  await cleanupTable("users", "id", byEmail.id);
+  return true;
+};
+
+const ensureFirestoreSchool = async (schoolId, schoolName) => {
+  if (!firebaseAdminDb || !schoolId) return;
+  const ref = firebaseAdminDb.collection("schools").doc(schoolId);
+  const snapshot = await ref.get();
+  if (snapshot.exists) return;
+
+  await ref.set(
+    {
+      name: schoolName ?? `School ${schoolId.slice(0, 8)}`,
+      subscriptionStatus: "Trial",
+      subscriptionPlan: null,
+      expiryDate: null,
+      themeColor: null,
+      createdAt: new Date().toISOString(),
+    },
+    { merge: true },
+  );
+};
+
+const buildFirebaseClaims = ({ name, role, schoolId, extra = {} }) => ({
+  ...(name ? { name } : {}),
+  ...(role ? { role } : {}),
+  ...(schoolId ? { school_id: schoolId, schoolId } : {}),
+  ...extra,
+});
+
+const createManagedAuthUser = async ({ email, password, name, role, schoolId, extra = {} }) => {
+  if (firebaseAdminAuth && hasFirebaseAdminConfig) {
+    let user;
+
+    try {
+      user = await firebaseAdminAuth.createUser({
+        email,
+        password,
+        emailVerified: true,
+        displayName: name || undefined,
+      });
+    } catch (error) {
+      const message = String(error?.message ?? "").toLowerCase();
+      const code = String(error?.code ?? "").toLowerCase();
+      const duplicateEmail =
+        code.includes("email-already-exists") ||
+        message.includes("email already exists") ||
+        message.includes("email-already-exists");
+
+      if (!duplicateEmail) {
+        throw error;
+      }
+
+      const cleaned = await cleanupStaleFirebaseAuthUserByEmail({ email, role, schoolId });
+      if (!cleaned) {
+        throw new Error(getDuplicateEmailMessage(email));
+      }
+
+      user = await firebaseAdminAuth.createUser({
+        email,
+        password,
+        emailVerified: true,
+        displayName: name || undefined,
+      });
+    }
+
+    await firebaseAdminAuth.setCustomUserClaims(user.uid, buildFirebaseClaims({ name, role, schoolId, extra }));
+    return { user: { id: user.uid, email: user.email ?? email } };
+  }
+
+  const { data, error } = await service.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    ...buildAuthMetadata({ name, role, schoolId, extra }),
+  });
+
+  if (error || !data.user) {
+    throw new Error(error?.message ?? "Unable to create auth user.");
+  }
+
+  return { user: { id: data.user.id, email: data.user.email ?? email } };
+};
+
+const updateManagedAuthUser = async (userId, { email, password, name, role, schoolId, extra = {} }) => {
+  if (firebaseAdminAuth && hasFirebaseAdminConfig) {
+    await firebaseAdminAuth.updateUser(userId, {
+      ...(email ? { email } : {}),
+      ...(password ? { password } : {}),
+      ...(name ? { displayName: name } : {}),
+    });
+    await firebaseAdminAuth.setCustomUserClaims(userId, buildFirebaseClaims({ name, role, schoolId, extra }));
+    return;
+  }
+
+  const { error } = await service.auth.admin.updateUserById(userId, {
+    ...(email ? { email } : {}),
+    ...(password ? { password } : {}),
+    ...buildAuthMetadata({ name, role, schoolId, extra }),
+  });
+  if (error) throw new Error(error.message);
+};
+
+const getFirestoreSchoolScopedQuery = (collectionName, schoolId) => {
+  if (!firebaseAdminDb) return null;
+  return firebaseAdminDb.collection(collectionName).where("schoolId", "==", schoolId);
+};
+
+const FIRESTORE_BOOTSTRAP_COLLECTIONS = [
+  "staff",
+  "parents",
+  "students",
+  "classes",
+  "subjects",
+  "attendance",
+  "notifications",
+];
+
+const FIRESTORE_SCHOOL_SCOPED_COLLECTIONS = new Set([
+  "staff",
+  "parents",
+  "students",
+  "classes",
+  "subjects",
+  "attendance",
+  "notifications",
+  "holidays",
+  "fees",
+  "results",
+  "marks",
+  "timetable",
+  "salary",
+  "routes",
+  "vehicles",
+  "applicants",
+  "leaves",
+  "staff_attendance",
+  "employees",
+  "timetable_adjustments",
+]);
+
+const FIRESTORE_GLOBAL_COLLECTIONS = new Set([
+  "schools",
+  "users",
+  "subscriptions",
+  "payments",
+  "auditLogs",
+]);
+
+const isFirestoreSystemMetaDoc = (data) =>
+  Boolean(data?.systemMeta) || String(data?.kind ?? "").toLowerCase() === "system_meta";
+
+const getFirestoreSchoolScopedDocs = async (collectionName, schoolId) => {
+  if (!firebaseAdminDb) return [];
+
+  let snapshot = await firebaseAdminDb.collection(collectionName).where("schoolId", "==", schoolId).get();
+  if (!snapshot.empty) {
+    return snapshot.docs.filter((doc) => !isFirestoreSystemMetaDoc(doc.data() ?? {}));
+  }
+
+  snapshot = await firebaseAdminDb.collection(collectionName).where("school_id", "==", schoolId).get();
+  return snapshot.docs.filter((doc) => !isFirestoreSystemMetaDoc(doc.data() ?? {}));
+};
+
+const getAllFirestoreDocs = async (collectionName) => {
+  if (!firebaseAdminDb) return [];
+  const snapshot = await firebaseAdminDb.collection(collectionName).get();
+  return snapshot.docs.filter((doc) => !isFirestoreSystemMetaDoc(doc.data() ?? {}));
+};
+
+const bootstrapSchoolCollections = async (schoolId) => {
+  if (!firebaseAdminDb || !schoolId) return;
+
+  const batch = firebaseAdminDb.batch();
+  const createdAt = new Date().toISOString();
+
+  FIRESTORE_BOOTSTRAP_COLLECTIONS.forEach((collectionName) => {
+    const ref = firebaseAdminDb.collection(collectionName).doc(`__meta__${schoolId}`);
+    batch.set(
+      ref,
+      {
+        schoolId,
+        collectionName,
+        kind: "system_meta",
+        systemMeta: true,
+        createdAt,
+      },
+      { merge: true },
+    );
+  });
+
+  await batch.commit();
+};
+
+const getFirestoreAllowedSchoolId = async (authHeader) => {
+  const context = await getUserProfile(authHeader);
+  const role = String(context?.profile?.role ?? "").trim().toLowerCase();
+  const schoolId = String(context?.profile?.school_id ?? "").trim() || null;
+  return {
+    role,
+    schoolId,
+    isSuperAdmin: role === "super_admin",
+  };
+};
+
+const listFirestoreCollectionForClient = async (payload, authHeader) => {
+  if (!firebaseAdminDb) {
+    throw new Error("Firebase Admin is not configured.");
+  }
+
+  const collectionName = String(payload.collectionName ?? "").trim();
+  if (!collectionName) {
+    throw new Error("Collection name is required.");
+  }
+
+  if (!FIRESTORE_SCHOOL_SCOPED_COLLECTIONS.has(collectionName) && !FIRESTORE_GLOBAL_COLLECTIONS.has(collectionName)) {
+    throw new Error("Collection is not allowed.");
+  }
+
+  const access = await getFirestoreAllowedSchoolId(authHeader);
+  const requestedSchoolId = String(payload.schoolId ?? "").trim() || null;
+
+  if (FIRESTORE_SCHOOL_SCOPED_COLLECTIONS.has(collectionName)) {
+    const effectiveSchoolId = access.isSuperAdmin ? requestedSchoolId : access.schoolId;
+    if (!effectiveSchoolId) {
+      throw new Error("School context is missing.");
+    }
+
+    const docs = await getFirestoreSchoolScopedDocs(collectionName, effectiveSchoolId);
+    return docs.map((doc) => ({ id: doc.id, data: doc.data() ?? {} }));
+  }
+
+  const docs = await getAllFirestoreDocs(collectionName);
+  return docs.map((doc) => ({ id: doc.id, data: doc.data() ?? {} }));
+};
+
+const getFirestoreDocumentForClient = async (payload, authHeader) => {
+  if (!firebaseAdminDb) {
+    throw new Error("Firebase Admin is not configured.");
+  }
+
+  const collectionName = String(payload.collectionName ?? "").trim();
+  const id = String(payload.id ?? "").trim();
+  if (!collectionName || !id) {
+    throw new Error("Collection name and document id are required.");
+  }
+
+  if (!FIRESTORE_SCHOOL_SCOPED_COLLECTIONS.has(collectionName) && !FIRESTORE_GLOBAL_COLLECTIONS.has(collectionName)) {
+    throw new Error("Collection is not allowed.");
+  }
+
+  const snapshot = await firebaseAdminDb.collection(collectionName).doc(id).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  const data = snapshot.data() ?? {};
+  if (isFirestoreSystemMetaDoc(data)) {
+    return null;
+  }
+
+  const access = await getFirestoreAllowedSchoolId(authHeader);
+
+  if (FIRESTORE_SCHOOL_SCOPED_COLLECTIONS.has(collectionName)) {
+    const documentSchoolId =
+      String(data.schoolId ?? data.school_id ?? "").trim() || null;
+    const requestedSchoolId = String(payload.schoolId ?? "").trim() || null;
+    const effectiveSchoolId = access.isSuperAdmin ? requestedSchoolId ?? documentSchoolId : access.schoolId;
+
+    if (!effectiveSchoolId || !documentSchoolId || documentSchoolId !== effectiveSchoolId) {
+      throw new Error("You do not have access to this document.");
+    }
+  }
+
+  if (collectionName === "schools" && !access.isSuperAdmin) {
+    if (!access.schoolId || access.schoolId !== snapshot.id) {
+      throw new Error("You do not have access to this school.");
+    }
+  }
+
+  if (collectionName === "users" && !access.isSuperAdmin) {
+    const documentSchoolId = String(data.schoolId ?? data.school_id ?? "").trim() || null;
+    const role = String(data.role ?? "").trim().toLowerCase();
+    if (role !== "super_admin" && documentSchoolId && access.schoolId !== documentSchoolId) {
+      throw new Error("You do not have access to this user.");
+    }
+  }
+
+  return { id: snapshot.id, data };
+};
+
+const setFirestoreDocumentForClient = async (payload, authHeader) => {
+  if (!firebaseAdminDb) {
+    throw new Error("Firebase Admin is not configured.");
+  }
+
+  const collectionName = String(payload.collectionName ?? "").trim();
+  const id = String(payload.id ?? "").trim();
+  const data = payload.data && typeof payload.data === "object" ? payload.data : null;
+  const merge = Boolean(payload.merge);
+
+  if (!collectionName || !id || !data) {
+    throw new Error("Collection name, document id, and data are required.");
+  }
+
+  if (!FIRESTORE_SCHOOL_SCOPED_COLLECTIONS.has(collectionName)) {
+    throw new Error("Collection is not allowed for client writes.");
+  }
+
+  const access = await getFirestoreAllowedSchoolId(authHeader);
+  const snapshot = await firebaseAdminDb.collection(collectionName).doc(id).get();
+
+  if (snapshot.exists) {
+    const existing = snapshot.data() ?? {};
+    if (isFirestoreSystemMetaDoc(existing)) {
+      throw new Error("System documents cannot be modified.");
+    }
+
+    const existingSchoolId = String(existing.schoolId ?? existing.school_id ?? "").trim() || null;
+    const effectiveSchoolId = access.isSuperAdmin
+      ? String(payload.schoolId ?? existingSchoolId ?? "").trim() || null
+      : access.schoolId;
+
+    if (!effectiveSchoolId || existingSchoolId !== effectiveSchoolId) {
+      throw new Error("You do not have access to this document.");
+    }
+
+    const nextData = {
+      ...data,
+      schoolId: effectiveSchoolId,
+    };
+    await snapshot.ref.set(nextData, { merge });
+    return { id: snapshot.id, data: { ...existing, ...nextData } };
+  }
+
+  const effectiveSchoolId = access.isSuperAdmin
+    ? String(payload.schoolId ?? "").trim() || null
+    : access.schoolId;
+
+  if (!effectiveSchoolId) {
+    throw new Error("School context is missing.");
+  }
+
+  const nextData = {
+    ...data,
+    schoolId: effectiveSchoolId,
+  };
+  await firebaseAdminDb.collection(collectionName).doc(id).set(nextData, { merge });
+  return { id, data: nextData };
+};
+
+const deleteFirestoreDocumentForClient = async (payload, authHeader) => {
+  if (!firebaseAdminDb) {
+    throw new Error("Firebase Admin is not configured.");
+  }
+
+  const collectionName = String(payload.collectionName ?? "").trim();
+  const id = String(payload.id ?? "").trim();
+
+  if (!collectionName || !id) {
+    throw new Error("Collection name and document id are required.");
+  }
+
+  if (!FIRESTORE_SCHOOL_SCOPED_COLLECTIONS.has(collectionName)) {
+    throw new Error("Collection is not allowed for client deletes.");
+  }
+
+  const access = await getFirestoreAllowedSchoolId(authHeader);
+  const snapshot = await firebaseAdminDb.collection(collectionName).doc(id).get();
+  if (!snapshot.exists) {
+    return { ok: true };
+  }
+
+  const data = snapshot.data() ?? {};
+  if (isFirestoreSystemMetaDoc(data)) {
+    throw new Error("System documents cannot be deleted.");
+  }
+
+  const documentSchoolId = String(data.schoolId ?? data.school_id ?? "").trim() || null;
+  const effectiveSchoolId = access.isSuperAdmin
+    ? String(payload.schoolId ?? documentSchoolId ?? "").trim() || null
+    : access.schoolId;
+
+  if (!effectiveSchoolId || !documentSchoolId || documentSchoolId !== effectiveSchoolId) {
+    throw new Error("You do not have access to this document.");
+  }
+
+  await snapshot.ref.delete();
+  return { ok: true };
+};
+
+const deleteFirestoreDocs = async (docs) => {
+  if (!firebaseAdminDb || !docs.length) return;
+  const batch = firebaseAdminDb.batch();
+  docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+};
+
+const deleteFirestoreByField = async (collectionName, field, value) => {
+  if (!firebaseAdminDb || value === null || value === undefined || value === "") return;
+  const snapshot = await firebaseAdminDb.collection(collectionName).where(field, "==", value).get();
+  await deleteFirestoreDocs(snapshot.docs);
+};
+
+const getFirestoreDocByField = async (collectionName, field, value) => {
+  if (!firebaseAdminDb || value === null || value === undefined || value === "") return null;
+  const snapshot = await firebaseAdminDb.collection(collectionName).where(field, "==", value).limit(1).get();
+  return snapshot.empty ? null : snapshot.docs[0];
+};
+
+const findFirestoreStaffDocByUserId = async (userId) => {
+  if (!firebaseAdminDb || !userId) return null;
+  return (
+    (await getFirestoreDocByField("staff", "userId", userId)) ||
+    (await getFirestoreDocByField("staff", "user_id", userId))
+  );
+};
+
+const upsertFirestoreUser = async (payload) => {
+  if (!firebaseAdminDb) return payload;
+
+  await firebaseAdminDb.collection("users").doc(payload.id).set(
+    {
+      name: payload.name,
+      email: payload.email,
+      role: payload.role,
+      schoolId: payload.school_id ?? null,
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true },
+  );
+
+  return {
+    id: payload.id,
+    role: payload.role,
+    email: payload.email,
+    school_id: payload.school_id ?? null,
+    name: payload.name,
+  };
+};
+
+const ensurePublicUserEmailAvailable = async (email, excludedUserId = null, options = {}) => {
   const normalizedEmail = String(email ?? "").trim().toLowerCase();
   if (!normalizedEmail) return;
+
+  if (firebaseAdminDb) {
+    let byEmail = await findFirestoreUserByEmail(normalizedEmail);
+    if (byEmail && byEmail.id !== excludedUserId) {
+      const cleaned = await cleanupStaleFirestoreUserByEmail({
+        email: normalizedEmail,
+        role: options.role ?? null,
+        schoolId: options.schoolId ?? null,
+        excludedUserId,
+      });
+      if (cleaned) {
+        byEmail = await findFirestoreUserByEmail(normalizedEmail);
+      }
+    }
+    if (byEmail && byEmail.id !== excludedUserId) {
+      throw new Error(getDuplicateEmailMessage(normalizedEmail));
+    }
+    return;
+  }
 
   const { data, error } = await service
     .from("users")
@@ -215,7 +949,14 @@ const ensurePublicUserEmailAvailable = async (email, excludedUserId = null) => {
 };
 
 const insertPublicUserProfile = async (payload) => {
-  await ensurePublicUserEmailAvailable(payload.email, payload.id ?? null);
+  await ensurePublicUserEmailAvailable(payload.email, payload.id ?? null, {
+    role: payload.role ?? null,
+    schoolId: payload.school_id ?? null,
+  });
+  if (firebaseAdminDb) {
+    await upsertFirestoreUser(payload);
+    return;
+  }
   const { error } = await service.from("users").insert(payload);
   if (error) {
     if (isUsersEmailUniqueError(error.message)) {
@@ -226,7 +967,14 @@ const insertPublicUserProfile = async (payload) => {
 };
 
 const updatePublicUserProfile = async (userId, payload) => {
-  await ensurePublicUserEmailAvailable(payload.email, userId);
+  await ensurePublicUserEmailAvailable(payload.email, userId, {
+    role: payload.role ?? null,
+    schoolId: payload.school_id ?? null,
+  });
+  if (firebaseAdminDb) {
+    await upsertFirestoreUser({ ...payload, id: userId });
+    return;
+  }
   const { error } = await service.from("users").update(payload).eq("id", userId);
   if (error) {
     if (isUsersEmailUniqueError(error.message)) {
@@ -283,7 +1031,15 @@ const ensurePublicUserProfile = async (authUser) => {
   const email = String(authUser.email ?? "").trim().toLowerCase() || null;
 
   if (!role) {
-    throw new Error("User role is missing from auth metadata. Sign out and sign in again.");
+    const existingProfile = authUser.id
+      ? await findPublicUserProfile(authUser)
+      : null;
+
+    if (existingProfile?.role) {
+      return existingProfile;
+    }
+
+    throw new Error("User role is missing from your Firebase profile. Add the role in the `users` collection for this account.");
   }
 
   if (role !== "super_admin") {
@@ -291,25 +1047,29 @@ const ensurePublicUserProfile = async (authUser) => {
       throw new Error("School context is missing. Sign out and sign in again.");
     }
 
-    const { data: school, error: schoolError } = await service
-      .from("schools")
-      .select("id")
-      .eq("id", schoolId)
-      .maybeSingle();
+    if (firebaseAdminDb) {
+      await ensureFirestoreSchool(schoolId, getAuthSchoolName(authUser) ?? `School ${schoolId.slice(0, 8)}`);
+    } else {
+      const { data: school, error: schoolError } = await service
+        .from("schools")
+        .select("id")
+        .eq("id", schoolId)
+        .maybeSingle();
 
-    if (schoolError) {
-      throw new Error(schoolError.message);
-    }
+      if (schoolError) {
+        throw new Error(schoolError.message);
+      }
 
-    if (!school) {
-      const { error: insertSchoolError } = await service.from("schools").insert({
-        id: schoolId,
-        name: getAuthSchoolName(authUser) ?? `School ${schoolId.slice(0, 8)}`,
-        subscription_status: "Trial",
-      });
+      if (!school) {
+        const { error: insertSchoolError } = await service.from("schools").insert({
+          id: schoolId,
+          name: getAuthSchoolName(authUser) ?? `School ${schoolId.slice(0, 8)}`,
+          subscription_status: "Trial",
+        });
 
-      if (insertSchoolError) {
-        throw new Error(insertSchoolError.message);
+        if (insertSchoolError) {
+          throw new Error(insertSchoolError.message);
+        }
       }
     }
   }
@@ -322,20 +1082,32 @@ const ensurePublicUserProfile = async (authUser) => {
     school_id: role === "super_admin" ? null : schoolId,
   };
 
-  const { data: existingById, error: existingByIdError } = await service
-    .from("users")
-    .select("id")
-    .eq("id", authUser.id)
-    .maybeSingle();
-
-  if (existingByIdError) {
-    throw new Error(existingByIdError.message);
-  }
+  const existingById = firebaseAdminDb
+    ? await findFirestoreUserById(authUser.id)
+    : await (async () => {
+        const { data, error } = await service
+          .from("users")
+          .select("id")
+          .eq("id", authUser.id)
+          .maybeSingle();
+        if (error) {
+          throw new Error(error.message);
+        }
+        return data;
+      })();
 
   if (existingById) {
     await updatePublicUserProfile(authUser.id, payload);
   } else {
     await insertPublicUserProfile(payload);
+  }
+
+  if (firebaseAdminDb) {
+    const profile = await findFirestoreUserById(authUser.id);
+    if (!profile) {
+      throw new Error("User profile not found.");
+    }
+    return profile;
   }
 
   const { data: profile, error: profileError } = await service
@@ -352,6 +1124,32 @@ const ensurePublicUserProfile = async (authUser) => {
 };
 
 const listAllAuthUsers = async () => {
+  if (firebaseAdminAuth && hasFirebaseAdminConfig) {
+    const users = [];
+    let pageToken = undefined;
+
+    while (true) {
+      const result = await firebaseAdminAuth.listUsers(1000, pageToken);
+      users.push(...result.users.map((user) => ({
+        id: user.uid,
+        email: user.email ?? "",
+        app_metadata: user.customClaims ?? {},
+        user_metadata: {
+          ...(user.customClaims ?? {}),
+          name: user.displayName ?? user.email?.split("@")[0] ?? "INDDIA ERP User",
+        },
+      })));
+
+      if (!result.pageToken) {
+        break;
+      }
+
+      pageToken = result.pageToken;
+    }
+
+    return users;
+  }
+
   const users = [];
   let page = 1;
   const perPage = 100;
@@ -377,16 +1175,28 @@ const listAllAuthUsers = async () => {
 
 const syncAuthDirectoryToPublic = async () => {
   const authUsers = await listAllAuthUsers();
-  const [{ data: publicUsers, error: usersError }, { data: schools, error: schoolsError }] = await Promise.all([
-    service.from("users").select("id, email"),
-    service.from("schools").select("id"),
-  ]);
+  let publicUserIds;
+  let schoolIds;
 
-  if (usersError) throw new Error(usersError.message);
-  if (schoolsError) throw new Error(schoolsError.message);
+  if (firebaseAdminDb) {
+    const [publicUsers, schools] = await Promise.all([
+      firebaseAdminDb.collection("users").get(),
+      firebaseAdminDb.collection("schools").get(),
+    ]);
+    publicUserIds = new Set(publicUsers.docs.map((row) => row.id));
+    schoolIds = new Set(schools.docs.map((row) => row.id));
+  } else {
+    const [{ data: publicUsers, error: usersError }, { data: schools, error: schoolsError }] = await Promise.all([
+      service.from("users").select("id, email"),
+      service.from("schools").select("id"),
+    ]);
 
-  const publicUserIds = new Set((publicUsers ?? []).map((row) => row.id));
-  const schoolIds = new Set((schools ?? []).map((row) => row.id));
+    if (usersError) throw new Error(usersError.message);
+    if (schoolsError) throw new Error(schoolsError.message);
+    publicUserIds = new Set((publicUsers ?? []).map((row) => row.id));
+    schoolIds = new Set((schools ?? []).map((row) => row.id));
+  }
+
   const missingSchools = [];
   const missingUsers = [];
 
@@ -422,9 +1232,15 @@ const syncAuthDirectoryToPublic = async () => {
   });
 
   if (missingSchools.length) {
-    const { error } = await service.from("schools").insert(missingSchools);
-    if (error) {
-      throw new Error(error.message);
+    if (firebaseAdminDb) {
+      await Promise.all(
+        missingSchools.map((school) => ensureFirestoreSchool(school.id, school.name)),
+      );
+    } else {
+      const { error } = await service.from("schools").insert(missingSchools);
+      if (error) {
+        throw new Error(error.message);
+      }
     }
   }
 
@@ -618,6 +1434,27 @@ const makeStudentCodePrefix = (schoolName) => {
 };
 
 const generateStudentIdentifier = async (tenantSchoolId) => {
+  if (firebaseAdminDb) {
+    const schoolSnapshot = await firebaseAdminDb.collection("schools").doc(tenantSchoolId).get();
+    if (!schoolSnapshot.exists) {
+      throw new Error("School not found for student creation.");
+    }
+
+    const prefix = makeStudentCodePrefix(getFirestoreString(schoolSnapshot.data() ?? {}, ["name"]));
+    const studentDocs = await getFirestoreSchoolScopedDocs("students", tenantSchoolId);
+    let sequence = studentDocs.length + 1;
+
+    for (;;) {
+      const candidate = `${prefix}-${String(sequence).padStart(4, "0")}`;
+      const email = `${candidate.toLowerCase()}@students.inddiaerp.local`;
+      const existingUser = await findFirestoreUserByEmail(email);
+      if (!existingUser) {
+        return candidate;
+      }
+      sequence += 1;
+    }
+  }
+
   const { data: school, error: schoolError } = await service
     .from("schools")
     .select("name")
@@ -665,6 +1502,15 @@ const resolveStudentIdentifier = async (tenantSchoolId, requestedIdentifier, exi
   const trimmed = String(requestedIdentifier ?? "").trim().toUpperCase();
   if (trimmed) {
     const email = `${trimmed.toLowerCase()}@students.inddiaerp.local`;
+    if (firebaseAdminDb) {
+      const existingUser = await findFirestoreUserByEmail(email);
+      if (!existingUser || String(existingUser.email ?? "").toLowerCase() === String(existingEmail ?? "").toLowerCase()) {
+        return trimmed;
+      }
+
+      throw new Error("Student ID already exists. Please choose a different student ID.");
+    }
+
     const { data: existingUser, error } = await service
       .from("users")
       .select("id, email")
@@ -706,6 +1552,21 @@ const toOptionalNumber = (value, label) => {
 };
 
 const ensureClassSectionExists = async (schoolId, className, section) => {
+  if (firebaseAdminDb) {
+    const classDocs = await getFirestoreSchoolScopedDocs("classes", schoolId);
+    const existingClass = classDocs.find((doc) => {
+      const data = doc.data() ?? {};
+      const existingClassName = getFirestoreString(data, ["className", "class_name"]);
+      const existingSection = getFirestoreString(data, ["section"]);
+      return existingClassName === className && existingSection === section;
+    });
+
+    if (!existingClass) {
+      throw new Error("Selected class and section do not exist. Create them first in Classes.");
+    }
+    return;
+  }
+
   const { data, error } = await service
     .from("classes")
     .select("id")
@@ -835,7 +1696,7 @@ const getCurrentDateInTimeZone = (timeZone) => {
 
 const syncGoogleCalendarFull = async (authHeader) => {
   const user = await requireAuthenticatedUser(authHeader);
-  const profile = await findPublicUserProfile(user, "id, role, email");
+  const profile = await findPublicUserProfile(user, "id, role, email, school_id");
 
   if (!profile) {
     throw new Error("User profile not found.");
@@ -843,41 +1704,103 @@ const syncGoogleCalendarFull = async (authHeader) => {
 
   const isAdmin = String(profile.role ?? "").toLowerCase() === "admin";
   let canSync = isAdmin;
+  let timetableRows = [];
+  let holidayRows = [];
+  let subjectMap = new Map();
+  let staffMap = new Map();
 
-  if (!canSync) {
-    const { data: staff } = await service
-      .from("staff")
-      .select("is_class_coordinator")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    canSync = Boolean(staff?.is_class_coordinator);
+  if (firebaseAdminDb) {
+    if (!canSync) {
+      const staff =
+        (await getFirestoreDocByField("staff", "userId", user.id)) ??
+        (await getFirestoreDocByField("staff", "user_id", user.id));
+      canSync = Boolean(getFirestoreField(staff?.data ?? {}, ["isClassCoordinator", "is_class_coordinator"]));
+    }
+
+    if (!canSync) {
+      throw new Error("You don't have permission to sync Google Calendar.");
+    }
+
+    const schoolId = await resolveAuditSchoolId(profile, user);
+    if (!schoolId) {
+      throw new Error("School context is missing.");
+    }
+
+    const [timetableDocs, holidayDocs, subjectDocs, staffDocs] = await Promise.all([
+      getFirestoreSchoolScopedDocs("timetable", schoolId),
+      getFirestoreSchoolScopedDocs("holidays", schoolId),
+      getFirestoreSchoolScopedDocs("subjects", schoolId),
+      getFirestoreSchoolScopedDocs("staff", schoolId),
+    ]);
+
+    timetableRows = timetableDocs
+      .map(({ id, data }) => ({
+        id,
+        class: getFirestoreString(data, ["className", "class"]) ?? "",
+        section: getFirestoreString(data, ["section"]) ?? "",
+        subject_id: getFirestoreString(data, ["subjectId", "subject_id"]) ?? "",
+        teacher_id: getFirestoreString(data, ["teacherId", "teacher_id"]) ?? "",
+        day: getFirestoreString(data, ["day"]) ?? "",
+        start_time: getFirestoreString(data, ["startTime", "start_time"]) ?? "",
+        end_time: getFirestoreString(data, ["endTime", "end_time"]) ?? "",
+      }))
+      .sort((left, right) =>
+        `${left.day}-${left.start_time}`.localeCompare(`${right.day}-${right.start_time}`),
+      );
+
+    holidayRows = holidayDocs
+      .map(({ id, data }) => ({
+        id,
+        holiday_date: getFirestoreString(data, ["holidayDate", "holiday_date"]) ?? "",
+        title: getFirestoreString(data, ["title"]) ?? "Holiday",
+        description: getFirestoreString(data, ["description"]) ?? "",
+      }))
+      .sort((left, right) => left.holiday_date.localeCompare(right.holiday_date));
+
+    subjectMap = new Map(
+      subjectDocs.map(({ id, data }) => [id, getFirestoreString(data, ["name"]) ?? "Subject"]),
+    );
+    staffMap = new Map(
+      staffDocs.map(({ id, data }) => [id, getFirestoreString(data, ["name"]) ?? "Teacher"]),
+    );
+  } else {
+    if (!canSync) {
+      const { data: staff } = await service
+        .from("staff")
+        .select("is_class_coordinator")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      canSync = Boolean(staff?.is_class_coordinator);
+    }
+
+    if (!canSync) {
+      throw new Error("You don't have permission to sync Google Calendar.");
+    }
+
+    const [timetableRowsResult, holidaysResult, subjectRowsResult, staffRowsResult] = await Promise.all([
+      service
+        .from("timetable")
+        .select("id, class, section, subject_id, teacher_id, day, start_time, end_time")
+        .order("day")
+        .order("start_time"),
+      service
+        .from("holidays")
+        .select("id, holiday_date, title, description")
+        .order("holiday_date"),
+      service.from("subjects").select("id, name"),
+      service.from("staff").select("id, name"),
+    ]);
+
+    if (timetableRowsResult.error) throw new Error(timetableRowsResult.error.message);
+    if (holidaysResult.error) throw new Error(holidaysResult.error.message);
+    if (subjectRowsResult.error) throw new Error(subjectRowsResult.error.message);
+    if (staffRowsResult.error) throw new Error(staffRowsResult.error.message);
+
+    timetableRows = timetableRowsResult.data ?? [];
+    holidayRows = holidaysResult.data ?? [];
+    subjectMap = new Map((subjectRowsResult.data ?? []).map((item) => [item.id, item.name]));
+    staffMap = new Map((staffRowsResult.data ?? []).map((item) => [item.id, item.name]));
   }
-
-  if (!canSync) {
-    throw new Error("You don't have permission to sync Google Calendar.");
-  }
-
-  const [timetableRowsResult, holidaysResult, subjectRowsResult, staffRowsResult] = await Promise.all([
-    service
-      .from("timetable")
-      .select("id, class, section, subject_id, teacher_id, day, start_time, end_time")
-      .order("day")
-      .order("start_time"),
-    service
-      .from("holidays")
-      .select("id, holiday_date, title, description")
-      .order("holiday_date"),
-    service.from("subjects").select("id, name"),
-    service.from("staff").select("id, name"),
-  ]);
-
-  if (timetableRowsResult.error) throw new Error(timetableRowsResult.error.message);
-  if (holidaysResult.error) throw new Error(holidaysResult.error.message);
-  if (subjectRowsResult.error) throw new Error(subjectRowsResult.error.message);
-  if (staffRowsResult.error) throw new Error(staffRowsResult.error.message);
-
-  const subjectMap = new Map((subjectRowsResult.data ?? []).map((item) => [item.id, item.name]));
-  const staffMap = new Map((staffRowsResult.data ?? []).map((item) => [item.id, item.name]));
 
   const existingEvents = await googleCalendarRequest(
     `/calendars/${encodeURIComponent(googleCalendarId)}/events?singleEvents=false&showDeleted=false&maxResults=2500&privateExtendedProperty=managedBy=inddia-erp`,
@@ -893,13 +1816,13 @@ const syncGoogleCalendarFull = async (authHeader) => {
   let created = 0;
   let deleted = (existingEvents?.items ?? []).length;
 
-  const holidaySet = new Set((holidaysResult.data ?? []).map((holiday) => holiday.holiday_date));
+  const holidaySet = new Set(holidayRows.map((holiday) => holiday.holiday_date));
   const startDate = getCurrentDateInTimeZone(googleCalendarTimezone);
   const syncDates = Array.from({ length: Math.max(1, googleCalendarSyncDays) }, (_, index) =>
     addDays(startDate, index),
   );
 
-  for (const row of timetableRowsResult.data ?? []) {
+  for (const row of timetableRows) {
     for (const date of syncDates) {
       if (holidaySet.has(date)) continue;
       if (dayForDate(date) !== row.day) continue;
@@ -935,7 +1858,7 @@ const syncGoogleCalendarFull = async (authHeader) => {
     }
   }
 
-  for (const holiday of holidaysResult.data ?? []) {
+  for (const holiday of holidayRows) {
     await googleCalendarRequest(`/calendars/${encodeURIComponent(googleCalendarId)}/events`, {
       method: "POST",
       body: JSON.stringify({
@@ -966,6 +1889,18 @@ const syncGoogleCalendarFull = async (authHeader) => {
 const cleanupStaffDependencies = async (staffId) => {
   if (!staffId) return;
 
+  if (firebaseAdminDb) {
+    await deleteFirestoreByField("timetable", "teacherId", staffId);
+    await deleteFirestoreByField("timetable", "teacher_id", staffId);
+    await deleteFirestoreByField("attendance", "teacherId", staffId);
+    await deleteFirestoreByField("attendance", "teacher_id", staffId);
+    await deleteFirestoreByField("notifications", "receiverId", staffId);
+    await deleteFirestoreByField("notifications", "receiver_id", staffId);
+    await deleteFirestoreByField("timetable_adjustments", "replacementTeacherId", staffId);
+    await deleteFirestoreByField("timetable_adjustments", "replacement_teacher_id", staffId);
+    return;
+  }
+
   const { error: timetableError } = await service.from("timetable").delete().eq("teacher_id", staffId);
   if (timetableError) {
     throw new Error(`Unable to remove timetable assignments: ${timetableError.message}`);
@@ -992,6 +1927,36 @@ const requireAuthenticatedUser = async (authHeader) => {
     throw new Error("Missing authorization header.");
   }
 
+  if (firebaseAdminAuth && hasFirebaseAdminConfig) {
+    try {
+      const decodedToken = await firebaseAdminAuth.verifyIdToken(accessToken);
+      return {
+        id: decodedToken.uid,
+        email: decodedToken.email ?? "",
+        app_metadata: {
+          role: decodedToken.role ?? null,
+          school_id: decodedToken.school_id ?? null,
+          school_name: decodedToken.school_name ?? null,
+          name: decodedToken.name ?? null,
+        },
+        user_metadata: {
+          role: decodedToken.role ?? null,
+          school_id: decodedToken.school_id ?? null,
+          school_name: decodedToken.school_name ?? null,
+          name: decodedToken.name ?? null,
+        },
+      };
+    } catch {
+      // Fall through to Supabase verification while the backend migration is still in progress.
+    }
+  }
+
+  if (!hasFirebaseAdminConfig && !(databaseUrl && databaseAnonKey && databaseServiceRoleKey)) {
+    throw new Error(
+      "Missing Firebase Admin setup. Add FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY to `.env.server`.",
+    );
+  }
+
   const {
     data: { user },
     error: userError,
@@ -1007,6 +1972,21 @@ const requireAuthenticatedUser = async (authHeader) => {
 const findPublicUserProfile = async (user, selectClause = "id, role, email, school_id, name") => {
   const authUserId = String(user?.id ?? "").trim();
   const normalizedEmail = String(user?.email ?? "").trim().toLowerCase();
+
+  if (firebaseAdminDb) {
+    if (authUserId) {
+      const byId = await findFirestoreUserById(authUserId);
+      if (byId) {
+        return byId;
+      }
+    }
+
+    if (!normalizedEmail) {
+      return null;
+    }
+
+    return findFirestoreUserByEmail(normalizedEmail);
+  }
 
   if (authUserId) {
     const { data: byId, error: byIdError } = await service
@@ -1054,6 +2034,71 @@ const getUserProfile = async (authHeader) => {
   return { user, profile: repairedProfile };
 };
 
+const getAuthContext = async (authHeader) => {
+  const { user, profile } = await getUserProfile(authHeader);
+  const role = normalizeRoleValue(profile?.role ?? null);
+  const schoolId = String(profile?.school_id ?? "").trim() || null;
+
+  let school = null;
+
+  if (schoolId) {
+    if (firebaseAdminDb) {
+      const schoolSnapshot = await firebaseAdminDb.collection("schools").doc(schoolId).get();
+      if (schoolSnapshot.exists) {
+        const data = schoolSnapshot.data() ?? {};
+        school = {
+          id: schoolSnapshot.id,
+          name: getFirestoreString(data, ["name"]) ?? `School ${schoolId.slice(0, 8)}`,
+          subscription_status: getFirestoreString(data, ["subscriptionStatus", "subscription_status"]) ?? "Trial",
+          subscription_plan: getFirestoreString(data, ["subscriptionPlan", "subscription_plan"]),
+          expiry_date: getFirestoreString(data, ["expiryDate", "expiry_date"]),
+          theme_color: getFirestoreString(data, ["themeColor", "theme_color"]),
+        };
+      } else {
+        school = {
+          id: schoolId,
+          name: `School ${schoolId.slice(0, 8)}`,
+          subscription_status: "Trial",
+          subscription_plan: null,
+          expiry_date: null,
+          theme_color: null,
+        };
+      }
+    } else {
+      const { data, error } = await service
+        .from("schools")
+        .select("id, name, subscription_status, subscription_plan, expiry_date, theme_color")
+        .eq("id", schoolId)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      school =
+        data ?? {
+          id: schoolId,
+          name: `School ${schoolId.slice(0, 8)}`,
+          subscription_status: "Trial",
+          subscription_plan: null,
+          expiry_date: null,
+          theme_color: null,
+        };
+    }
+  }
+
+  return {
+    user: {
+      id: String(profile?.id ?? user?.id ?? "").trim(),
+      name: String(profile?.name ?? user?.email?.split("@")[0] ?? "INDDIA ERP User").trim() || "INDDIA ERP User",
+      email: String(profile?.email ?? user?.email ?? "").trim().toLowerCase() || null,
+      role,
+      school_id: role === "super_admin" ? null : schoolId,
+    },
+    school,
+  };
+};
+
 const getAuthSchoolName = (user) => {
   const appMetadata = user?.app_metadata ?? {};
   const userMetadata = user?.user_metadata ?? {};
@@ -1065,6 +2110,11 @@ const ensureTenantSchoolExists = async (context) => {
   const schoolId = String(context?.profile?.school_id ?? "").trim();
   if (!schoolId) {
     throw new Error("School context is missing. Sign in again.");
+  }
+
+  if (firebaseAdminDb) {
+    await ensureFirestoreSchool(schoolId, getAuthSchoolName(context.user) ?? `School ${schoolId.slice(0, 8)}`);
+    return schoolId;
   }
 
   const { data: existingSchool, error: schoolLookupError } = await service
@@ -1108,6 +2158,11 @@ const resolveAuditSchoolId = async (schoolId) => {
   const normalizedSchoolId = String(schoolId ?? "").trim();
   if (!normalizedSchoolId) return null;
 
+  if (firebaseAdminDb) {
+    const snapshot = await firebaseAdminDb.collection("schools").doc(normalizedSchoolId).get();
+    return snapshot.exists ? snapshot.id : null;
+  }
+
   const { data, error } = await service
     .from("schools")
     .select("id")
@@ -1123,6 +2178,18 @@ const resolveAuditSchoolId = async (schoolId) => {
 
 const insertAuditLog = async ({ schoolId = null, userId = null, action, module, recordId = null }) => {
   const safeSchoolId = await resolveAuditSchoolId(schoolId);
+
+  if (firebaseAdminDb) {
+    await firebaseAdminDb.collection("auditLogs").add({
+      schoolId: safeSchoolId,
+      userId,
+      action,
+      module,
+      recordId,
+      createdAt: new Date().toISOString(),
+    });
+    return;
+  }
 
   const { error } = await service.from("audit_logs").insert({
     school_id: safeSchoolId,
@@ -1666,16 +2733,111 @@ const createStaff = async (payload, authHeader) => {
     throw new Error("School context is missing for this staff creation request.");
   }
 
-  const { data: authUser, error: authError } = await service.auth.admin.createUser({
+  if (firebaseAdminDb) {
+    let authUser;
+    let createdAuthUser = false;
+
+    try {
+      authUser = await createManagedAuthUser({
+        email,
+        password,
+        name,
+        role: "staff",
+        schoolId: tenantSchoolId,
+      });
+      createdAuthUser = true;
+    } catch (error) {
+      const duplicateEmailMessage = getDuplicateEmailMessage(email);
+      if (!(error instanceof Error) || error.message !== duplicateEmailMessage || !firebaseAdminAuth) {
+        throw error;
+      }
+
+      const existingAuthUser = await firebaseAdminAuth.getUserByEmail(email);
+      const existingProfile = await findFirestoreUserById(existingAuthUser.uid);
+
+      if (
+        !existingProfile ||
+        String(existingProfile.role ?? "").trim().toLowerCase() !== "staff" ||
+        String(existingProfile.school_id ?? "").trim() !== tenantSchoolId
+      ) {
+        throw error;
+      }
+
+      await updateManagedAuthUser(existingAuthUser.uid, {
+        email,
+        password,
+        name,
+        role: "staff",
+        schoolId: tenantSchoolId,
+      });
+
+      authUser = {
+        user: {
+          id: existingAuthUser.uid,
+          email: existingAuthUser.email ?? email,
+        },
+      };
+    }
+
+    try {
+      await updatePublicUserProfile(authUser.user.id, {
+        name,
+        email,
+        phone: mobileNumber,
+        role: "staff",
+        school_id: tenantSchoolId,
+        photo_url: photoUrl,
+      });
+
+      const existingStaffDoc = await findFirestoreStaffDocByUserId(authUser.user.id);
+      const staffRef = existingStaffDoc ?? firebaseAdminDb.collection("staff").doc();
+      await staffRef.set({
+        userId: authUser.user.id,
+        schoolId: tenantSchoolId,
+        name,
+        role,
+        mobileNumber,
+        dateOfJoining,
+        monthlySalary,
+        subjectId,
+        isClassCoordinator,
+        assignedClass,
+        assignedSection,
+        createdAt: new Date().toISOString(),
+      }, { merge: true });
+
+      return {
+        id: staffRef.id,
+        userId: authUser.user.id,
+        name,
+        email,
+        mobileNumber,
+        photoUrl,
+        role,
+        dateOfJoining,
+        monthlySalary,
+        subjectId,
+        assignedClass,
+        assignedSection,
+        isClassCoordinator,
+      };
+    } catch (error) {
+      if (createdAuthUser) {
+        await cleanupTable("staff", "userId", authUser.user.id);
+        await cleanupTable("users", "id", authUser.user.id);
+        await cleanupUser(authUser.user.id);
+      }
+      throw error;
+    }
+  }
+
+  const authUser = await createManagedAuthUser({
     email,
     password,
-    email_confirm: true,
-    ...buildAuthMetadata({ name, role: "staff", schoolId: tenantSchoolId }),
+    name,
+    role: "staff",
+    schoolId: tenantSchoolId,
   });
-
-  if (authError || !authUser.user) {
-    throw new Error(authError?.message ?? "Unable to create staff auth user.");
-  }
 
   try {
     await insertPublicUserProfile({
@@ -1750,6 +2912,13 @@ const normalizeStaffImportRole = (value) => {
   throw new Error(`Unsupported staff role "${toImportText(value)}".`);
 };
 
+const normalizeSubjectLookupKey = (value) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+
 const STAFF_IMPORT_BATCH_SIZE = 5;
 const STUDENT_IMPORT_BATCH_SIZE = 3;
 
@@ -1766,17 +2935,31 @@ const bulkImportStaff = async (payload, authHeader) => {
     throw new Error("Add at least one staff row to import.");
   }
 
-  const { data: subjectRows, error: subjectError } = await service
-    .from("subjects")
-    .select("id, name")
-    .eq("school_id", tenantSchoolId);
+  let subjectRows = [];
 
-  if (subjectError) {
-    throw new Error(subjectError.message);
+  if (firebaseAdminDb) {
+    const docs = await getFirestoreSchoolScopedDocs("subjects", tenantSchoolId);
+    subjectRows = docs.map((doc) => ({
+      id: doc.id,
+      name: getFirestoreString(doc.data() ?? {}, ["name"]),
+    }));
+  } else {
+    const { data, error: subjectError } = await service
+      .from("subjects")
+      .select("id, name")
+      .eq("school_id", tenantSchoolId);
+
+    if (subjectError) {
+      throw new Error(subjectError.message);
+    }
+
+    subjectRows = data ?? [];
   }
 
   const subjectMap = new Map(
-    (subjectRows ?? []).map((row) => [String(row.name ?? "").trim().toLowerCase(), row.id]),
+    subjectRows
+      .filter((row) => String(row?.name ?? "").trim())
+      .map((row) => [normalizeSubjectLookupKey(row.name), row.id]),
   );
 
   const normalizedRows = rows
@@ -1796,7 +2979,8 @@ const bulkImportStaff = async (payload, authHeader) => {
       const role = normalizeStaffImportRole(getImportValue(row, ["role", "staffRole", "staff role", "designation"]));
       const subjectName = toImportText(getImportValue(row, ["subjectName", "subject name", "subject"]));
       const subjectIdFromSheet = toImportText(getImportValue(row, ["subjectId", "subject id"]));
-      const resolvedSubjectId = subjectIdFromSheet || (subjectName ? subjectMap.get(subjectName.toLowerCase()) ?? "" : "");
+      const resolvedSubjectId =
+        subjectIdFromSheet || (subjectName ? subjectMap.get(normalizeSubjectLookupKey(subjectName)) ?? "" : "");
 
       if (subjectName && !resolvedSubjectId) {
         throw new Error(`Subject "${subjectName}" was not found in this school.`);
@@ -1884,14 +3068,67 @@ const updateStaff = async (payload, authHeader) => {
     throw new Error("School context is missing for this staff update request.");
   }
 
-  const authUpdate = {
-    email,
-    ...(password ? { password } : {}),
-    ...buildAuthMetadata({ name, role: "staff", schoolId: tenantSchoolId }),
-  };
+  if (firebaseAdminDb) {
+    await updateManagedAuthUser(userId, {
+      email,
+      password,
+      name,
+      role: "staff",
+      schoolId: tenantSchoolId,
+    });
 
-  const { error: authError } = await service.auth.admin.updateUserById(userId, authUpdate);
-  if (authError) throw new Error(authError.message);
+    await updatePublicUserProfile(userId, {
+      name,
+      email,
+      phone: mobileNumber,
+      role: "staff",
+      school_id: tenantSchoolId,
+      photo_url: photoUrl,
+    });
+
+    const staffRef = firebaseAdminDb.collection("staff").doc(id);
+    await staffRef.set(
+      {
+        userId,
+        schoolId: tenantSchoolId,
+        name,
+        role,
+        mobileNumber,
+        dateOfJoining,
+        monthlySalary,
+        subjectId,
+        assignedClass,
+        assignedSection,
+        isClassCoordinator,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+
+    return {
+      id,
+      userId,
+      name,
+      email,
+      mobileNumber,
+      photoUrl,
+      role,
+      dateOfJoining,
+      monthlySalary,
+      subjectId,
+      assignedClass,
+      assignedSection,
+      isClassCoordinator,
+    };
+  }
+
+  await updateManagedAuthUser(userId, {
+    email,
+    password,
+    name,
+    role: "staff",
+    schoolId: tenantSchoolId,
+  });
 
   await updatePublicUserProfile(userId, {
     name,
@@ -1956,6 +3193,30 @@ const createClass = async (payload, authHeader) => {
     }
   }
 
+  if (firebaseAdminDb) {
+    const ref = firebaseAdminDb.collection("classes").doc();
+    await ref.set({
+      schoolId,
+      className,
+      section,
+      roomNumber,
+      floor,
+      capacity,
+      createdAt: new Date().toISOString(),
+    });
+
+    return {
+      id: ref.id,
+      className,
+      section,
+      roomNumber,
+      floor,
+      capacity,
+      coordinatorId: null,
+      coordinatorName: null,
+    };
+  }
+
   const { data, error } = await service
     .from("classes")
     .insert({
@@ -2007,6 +3268,38 @@ const updateClass = async (payload, authHeader) => {
     }
   }
 
+  if (firebaseAdminDb) {
+    const ref = firebaseAdminDb.collection("classes").doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) {
+      throw new Error("Unable to update class.");
+    }
+
+    await ref.set(
+      {
+        schoolId,
+        className,
+        section,
+        roomNumber,
+        floor,
+        capacity,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+
+    return {
+      id,
+      className,
+      section,
+      roomNumber,
+      floor,
+      capacity,
+      coordinatorId: null,
+      coordinatorName: null,
+    };
+  }
+
   const { data, error } = await service
     .from("classes")
     .update({
@@ -2044,6 +3337,32 @@ const deleteClass = async (payload, authHeader) => {
   const id = String(payload.id ?? "").trim();
   if (!id) throw new Error("Class id is required.");
 
+  if (firebaseAdminDb) {
+    const classRef = firebaseAdminDb.collection("classes").doc(id);
+    const classSnapshot = await classRef.get();
+    if (!classSnapshot.exists) throw new Error("Class not found.");
+
+    const classData = classSnapshot.data() ?? {};
+    const className = getFirestoreString(classData, ["className", "class_name"]);
+    const section = getFirestoreString(classData, ["section"]);
+
+    const studentDocs = await getFirestoreSchoolScopedDocs("students", schoolId);
+    const assignedStudents = studentDocs.filter((doc) => {
+      const data = doc.data() ?? {};
+      return (
+        getFirestoreString(data, ["className", "class"]) === className &&
+        getFirestoreString(data, ["section"]) === section
+      );
+    });
+
+    if (assignedStudents.length > 0) {
+      throw new Error("Students are still assigned to this class. Remove or move them first.");
+    }
+
+    await classRef.delete();
+    return null;
+  }
+
   const { data: classRow, error: classLookupError } = await service
     .from("classes")
     .select("id, class_name, section")
@@ -2075,6 +3394,19 @@ const deleteStaff = async (payload) => {
   const id = String(payload.id ?? "");
   if (!id) throw new Error("Staff id is required.");
 
+  if (firebaseAdminDb) {
+    const staffRef = firebaseAdminDb.collection("staff").doc(id);
+    const staffSnapshot = await staffRef.get();
+    if (!staffSnapshot.exists) throw new Error("Staff member not found.");
+    const userId = getFirestoreString(staffSnapshot.data() ?? {}, ["userId", "user_id"]);
+
+    await cleanupStaffDependencies(id);
+    await staffRef.delete();
+    await cleanupTable("users", "id", userId);
+    await cleanupUser(userId);
+    return null;
+  }
+
   const { data, error } = await service.from("staff").select("user_id").eq("id", id).single();
   if (error || !data) throw new Error(error?.message ?? "Staff member not found.");
 
@@ -2097,6 +3429,34 @@ const deleteStaff = async (payload) => {
 const deleteAllStaff = async (_payload, authHeader) => {
   const context = await getUserProfile(authHeader);
   const schoolId = await ensureTenantSchoolExists(context);
+
+  if (firebaseAdminDb) {
+    const staffDocs = await getFirestoreSchoolScopedDocs("staff", schoolId);
+    const rows = staffDocs.map((doc) => ({
+      id: doc.id,
+      user_id: getFirestoreString(doc.data() ?? {}, ["userId", "user_id"]),
+    }));
+
+    for (const row of rows) {
+      await cleanupStaffDependencies(row.id);
+    }
+
+    await deleteFirestoreDocs(staffDocs);
+    for (const row of rows) {
+      await cleanupTable("users", "id", row.user_id);
+      await cleanupUser(row.user_id);
+    }
+
+    await insertAuditLog({
+      schoolId,
+      userId: context.profile.id ?? context.user.id,
+      action: "DELETE",
+      module: "STAFF_BULK_DELETE",
+      recordId: null,
+    });
+
+    return { deleted: rows.length };
+  }
 
   const { data: staffRows, error: staffError } = await service
     .from("staff")
@@ -2216,16 +3576,160 @@ const createStudentBundle = async (payload, authHeader) => {
   let parentId;
   let studentUserId;
 
+  if (firebaseAdminDb) {
+    try {
+      const parentAuth = await createManagedAuthUser({
+        email: fatherEmail,
+        password: fatherPassword,
+        name: fatherName,
+        role: "parent",
+        schoolId: tenantSchoolId,
+      });
+      parentUserId = parentAuth.user.id;
+
+      await insertPublicUserProfile({
+        id: parentUserId,
+        name: fatherName,
+        email: fatherEmail,
+        role: "parent",
+        school_id: tenantSchoolId,
+      });
+
+      const parentRef = firebaseAdminDb.collection("parents").doc();
+      await parentRef.set({
+        userId: parentUserId,
+        schoolId: tenantSchoolId,
+        name: fatherName,
+        email: fatherEmail,
+        phone: fatherMobileNumber,
+        fatherName,
+        fatherAadharNumber,
+        fatherOccupation,
+        fatherEducation,
+        fatherMobileNumber,
+        fatherProfession,
+        fatherIncome,
+        motherName,
+        motherAadharNumber,
+        motherOccupation,
+        motherEducation,
+        motherMobileNumber,
+        motherProfession,
+        motherIncome,
+        createdAt: new Date().toISOString(),
+      });
+      parentId = parentRef.id;
+
+      const studentAuth = await createManagedAuthUser({
+        email: studentEmail,
+        password: studentPassword,
+        name: studentName,
+        role: "student",
+        schoolId: tenantSchoolId,
+        extra: { student_code: studentIdentifier, studentCode: studentIdentifier },
+      });
+      studentUserId = studentAuth.user.id;
+
+      await insertPublicUserProfile({
+        id: studentUserId,
+        name: studentName,
+        email: studentEmail,
+        role: "student",
+        school_id: tenantSchoolId,
+        photo_url: photoUrl,
+      });
+
+      const studentRef = firebaseAdminDb.collection("students").doc();
+      await studentRef.set({
+        userId: studentUserId,
+        schoolId: tenantSchoolId,
+        name: studentName,
+        studentCode: studentIdentifier,
+        className,
+        section,
+        admissionDate,
+        discountFee,
+        studentAadharNumber,
+        dateOfBirth,
+        birthId,
+        isOrphan,
+        gender,
+        caste,
+        osc,
+        identificationMark,
+        previousSchool,
+        region,
+        bloodGroup,
+        previousBoardRollNo,
+        address,
+        parentId,
+        photoUrl,
+        createdAt: new Date().toISOString(),
+      });
+
+      return {
+        id: studentRef.id,
+        userId: studentUserId,
+        name: studentName,
+        photoUrl,
+        schoolId: studentIdentifier,
+        className,
+        section,
+        admissionDate,
+        discountFee,
+        studentAadharNumber,
+        dateOfBirth,
+        birthId,
+        isOrphan,
+        gender,
+        caste,
+        osc,
+        identificationMark,
+        previousSchool,
+        region,
+        bloodGroup,
+        previousBoardRollNo,
+        address,
+        parentId,
+        parentUserId,
+        parentName: fatherName,
+        parentEmail: fatherEmail,
+        parentPhone: fatherMobileNumber,
+        fatherName,
+        fatherAadharNumber,
+        fatherOccupation,
+        fatherEducation,
+        fatherMobileNumber,
+        fatherProfession,
+        fatherIncome,
+        fatherEmail,
+        motherName,
+        motherAadharNumber,
+        motherOccupation,
+        motherEducation,
+        motherMobileNumber,
+        motherProfession,
+        motherIncome,
+      };
+    } catch (error) {
+      await cleanupTable("students", "userId", studentUserId);
+      await cleanupTable("users", "id", studentUserId);
+      await cleanupUser(studentUserId);
+      await cleanupTable("parents", "id", parentId);
+      await cleanupTable("users", "id", parentUserId);
+      await cleanupUser(parentUserId);
+      throw error;
+    }
+  }
+
   try {
-    const { data: parentAuth, error: parentAuthError } = await service.auth.admin.createUser({
+    const parentAuth = await createManagedAuthUser({
       email: fatherEmail,
       password: fatherPassword,
-      email_confirm: true,
-      ...buildAuthMetadata({ name: fatherName, role: "parent", schoolId: tenantSchoolId }),
+      name: fatherName,
+      role: "parent",
+      schoolId: tenantSchoolId,
     });
-    if (parentAuthError || !parentAuth.user) {
-      throw new Error(parentAuthError?.message ?? "Unable to create parent auth user.");
-    }
     parentUserId = parentAuth.user.id;
 
     await insertPublicUserProfile({
@@ -2264,15 +3768,14 @@ const createStudentBundle = async (payload, authHeader) => {
     if (parentError || !parentRow) throw new Error(parentError?.message ?? "Unable to create parent record.");
     parentId = parentRow.id;
 
-    const { data: studentAuth, error: studentAuthError } = await service.auth.admin.createUser({
+    const studentAuth = await createManagedAuthUser({
       email: studentEmail,
       password: studentPassword,
-      email_confirm: true,
-      ...buildAuthMetadata({ name: studentName, role: "student", schoolId: tenantSchoolId, extra: { student_code: studentIdentifier } }),
+      name: studentName,
+      role: "student",
+      schoolId: tenantSchoolId,
+      extra: { student_code: studentIdentifier, studentCode: studentIdentifier },
     });
-    if (studentAuthError || !studentAuth.user) {
-      throw new Error(studentAuthError?.message ?? "Unable to create student auth user.");
-    }
     studentUserId = studentAuth.user.id;
 
     await insertPublicUserProfile({
@@ -2574,6 +4077,139 @@ const updateStudentBundle = async (payload, authHeader) => {
 
   await ensureClassSectionExists(tenantSchoolId, className, section);
 
+  if (firebaseAdminDb) {
+    await updateManagedAuthUser(parentUserId, {
+      email: fatherEmail,
+      password: fatherPassword,
+      name: fatherName,
+      role: "parent",
+      schoolId: tenantSchoolId,
+    });
+    await updateManagedAuthUser(userId, {
+      email: studentEmail,
+      password: studentPassword,
+      name: studentName,
+      role: "student",
+      schoolId: tenantSchoolId,
+      extra: { student_code: studentIdentifier, studentCode: studentIdentifier },
+    });
+
+    await updatePublicUserProfile(parentUserId, {
+      name: fatherName,
+      email: fatherEmail,
+      role: "parent",
+      school_id: tenantSchoolId,
+    });
+    await updatePublicUserProfile(userId, {
+      name: studentName,
+      email: studentEmail,
+      role: "student",
+      school_id: tenantSchoolId,
+      photo_url: photoUrl,
+    });
+
+    await firebaseAdminDb.collection("parents").doc(parentId).set(
+      {
+        userId: parentUserId,
+        schoolId: tenantSchoolId,
+        name: fatherName,
+        email: fatherEmail,
+        phone: fatherMobileNumber,
+        fatherName,
+        fatherAadharNumber,
+        fatherOccupation,
+        fatherEducation,
+        fatherMobileNumber,
+        fatherProfession,
+        fatherIncome,
+        motherName,
+        motherAadharNumber,
+        motherOccupation,
+        motherEducation,
+        motherMobileNumber,
+        motherProfession,
+        motherIncome,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+
+    await firebaseAdminDb.collection("students").doc(id).set(
+      {
+        userId,
+        schoolId: tenantSchoolId,
+        name: studentName,
+        studentCode: studentIdentifier,
+        className,
+        section,
+        admissionDate,
+        discountFee,
+        studentAadharNumber,
+        dateOfBirth,
+        birthId,
+        isOrphan,
+        gender,
+        caste,
+        osc,
+        identificationMark,
+        previousSchool,
+        region,
+        bloodGroup,
+        previousBoardRollNo,
+        address,
+        parentId,
+        photoUrl,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+
+    return {
+      id,
+      userId,
+      name: studentName,
+      photoUrl,
+      schoolId: studentIdentifier,
+      className,
+      section,
+      admissionDate,
+      discountFee,
+      studentAadharNumber,
+      dateOfBirth,
+      birthId,
+      isOrphan,
+      gender,
+      caste,
+      osc,
+      identificationMark,
+      previousSchool,
+      region,
+      bloodGroup,
+      previousBoardRollNo,
+      address,
+      parentId,
+      parentUserId,
+      parentName: fatherName,
+      parentEmail: fatherEmail,
+      parentPhone: fatherMobileNumber,
+      fatherName,
+      fatherAadharNumber,
+      fatherOccupation,
+      fatherEducation,
+      fatherMobileNumber,
+      fatherProfession,
+      fatherIncome,
+      fatherEmail,
+      motherName,
+      motherAadharNumber,
+      motherOccupation,
+      motherEducation,
+      motherMobileNumber,
+      motherProfession,
+      motherIncome,
+    };
+  }
+
   const parentAuthUpdate = {
     email: fatherEmail,
     ...(fatherPassword ? { password: fatherPassword } : {}),
@@ -2866,6 +4502,124 @@ const mapSchoolDirectoryRow = (schoolId, school, admin, subscription, payment) =
 });
 
 const loadSchoolDirectory = async () => {
+  if (firebaseAdminDb) {
+    const [schoolDocs, userDocs, subscriptionDocs, paymentDocs] = await Promise.all([
+      getAllFirestoreDocs("schools"),
+      getAllFirestoreDocs("users"),
+      getAllFirestoreDocs("subscriptions"),
+      getAllFirestoreDocs("payments"),
+    ]);
+
+    const schoolById = new Map(
+      schoolDocs.map((doc) => [
+        doc.id,
+        {
+          id: doc.id,
+          name: getFirestoreString(doc.data(), ["name"]),
+          email: getFirestoreString(doc.data(), ["email"]),
+          phone: getFirestoreString(doc.data(), ["phone"]),
+          address: getFirestoreString(doc.data(), ["address"]),
+          attendance_map_link: getFirestoreString(doc.data(), ["attendanceMapLink", "attendance_map_link"]),
+          attendance_geo_latitude: getFirestoreNumber(doc.data(), ["attendanceGeoLatitude", "attendance_geo_latitude"]),
+          attendance_geo_longitude: getFirestoreNumber(doc.data(), ["attendanceGeoLongitude", "attendance_geo_longitude"]),
+          attendance_geo_radius_meters: getFirestoreNumber(doc.data(), ["attendanceGeoRadiusMeters", "attendance_geo_radius_meters"]),
+          billing_contact_name: getFirestoreString(doc.data(), ["billingContactName", "billing_contact_name"]),
+          billing_contact_email: getFirestoreString(doc.data(), ["billingContactEmail", "billing_contact_email"]),
+          billing_contact_phone: getFirestoreString(doc.data(), ["billingContactPhone", "billing_contact_phone"]),
+          billing_address: getFirestoreString(doc.data(), ["billingAddress", "billing_address"]),
+          finance_email: getFirestoreString(doc.data(), ["financeEmail", "finance_email"]),
+          tax_id: getFirestoreString(doc.data(), ["taxId", "tax_id"]),
+          authorized_signatory: getFirestoreString(doc.data(), ["authorizedSignatory", "authorized_signatory"]),
+          logo_url: getFirestoreString(doc.data(), ["logoUrl", "logo_url"]),
+          theme_color: getFirestoreString(doc.data(), ["themeColor", "theme_color"]),
+          subscription_status: getFirestoreString(doc.data(), ["subscriptionStatus", "subscription_status"]),
+          subscription_plan: getFirestoreString(doc.data(), ["subscriptionPlan", "subscription_plan"]),
+          storage_limit: getFirestoreNumber(doc.data(), ["storageLimit", "storage_limit"]),
+          student_limit: getFirestoreNumber(doc.data(), ["studentLimit", "student_limit"]),
+          staff_limit: getFirestoreNumber(doc.data(), ["staffLimit", "staff_limit"]),
+          renewal_notice_days: getFirestoreNumber(doc.data(), ["renewalNoticeDays", "renewal_notice_days"]),
+          expiry_date: getFirestoreString(doc.data(), ["expiryDate", "expiry_date"]),
+          created_at: getFirestoreString(doc.data(), ["createdAt", "created_at"]),
+        },
+      ]),
+    );
+
+    const adminBySchoolId = new Map();
+    const latestSubscriptionBySchool = new Map();
+    const latestPaymentBySchool = new Map();
+    const schoolIds = new Set(schoolById.keys());
+
+    userDocs.forEach((doc) => {
+      const data = doc.data();
+      const role = normalizeRoleValue(getFirestoreString(data, ["role"]));
+      const schoolId = getFirestoreString(data, ["schoolId", "school_id"]);
+      if (role !== "admin" || !schoolId || adminBySchoolId.has(schoolId)) return;
+      adminBySchoolId.set(schoolId, {
+        school_id: schoolId,
+        name: getFirestoreString(data, ["name"]),
+        email: getFirestoreString(data, ["email"]),
+        created_at: getFirestoreString(data, ["createdAt", "created_at"]),
+      });
+      schoolIds.add(schoolId);
+    });
+
+    subscriptionDocs
+      .map((doc) => ({
+        id: doc.id,
+        school_id: getFirestoreString(doc.data(), ["schoolId", "school_id"]),
+        plan_name: getFirestoreString(doc.data(), ["planName", "plan_name"]),
+        amount: getFirestoreNumber(doc.data(), ["amount"]),
+        duration_months: getFirestoreNumber(doc.data(), ["durationMonths", "duration_months"]),
+        start_date: getFirestoreString(doc.data(), ["startDate", "start_date"]),
+        end_date: getFirestoreString(doc.data(), ["endDate", "end_date"]),
+        status: getFirestoreString(doc.data(), ["status"]),
+        created_at: getFirestoreString(doc.data(), ["createdAt", "created_at"]),
+      }))
+      .sort((left, right) => String(right.created_at ?? "").localeCompare(String(left.created_at ?? "")))
+      .forEach((row) => {
+        if (!row.school_id || latestSubscriptionBySchool.has(row.school_id)) return;
+        latestSubscriptionBySchool.set(row.school_id, row);
+        schoolIds.add(row.school_id);
+      });
+
+    paymentDocs
+      .map((doc) => ({
+        id: doc.id,
+        school_id: getFirestoreString(doc.data(), ["schoolId", "school_id"]),
+        amount: getFirestoreNumber(doc.data(), ["amount"]),
+        payment_method: getFirestoreString(doc.data(), ["paymentMethod", "payment_method"]),
+        payment_date: getFirestoreString(doc.data(), ["paymentDate", "payment_date"]),
+        status: getFirestoreString(doc.data(), ["status"]),
+        created_at: getFirestoreString(doc.data(), ["createdAt", "created_at"]),
+      }))
+      .sort((left, right) => String(right.payment_date ?? right.created_at ?? "").localeCompare(String(left.payment_date ?? left.created_at ?? "")))
+      .forEach((row) => {
+        if (!row.school_id || latestPaymentBySchool.has(row.school_id)) return;
+        latestPaymentBySchool.set(row.school_id, row);
+        schoolIds.add(row.school_id);
+      });
+
+    const schools = Array.from(schoolIds)
+      .map((schoolId) =>
+        mapSchoolDirectoryRow(
+          schoolId,
+          schoolById.get(schoolId),
+          adminBySchoolId.get(schoolId),
+          latestSubscriptionBySchool.get(schoolId),
+          latestPaymentBySchool.get(schoolId),
+        ),
+      )
+      .sort((left, right) => String(right.createdAt ?? "").localeCompare(String(left.createdAt ?? "")));
+
+    return {
+      schools,
+      schoolById,
+      adminBySchoolId,
+      latestSubscriptionBySchool,
+      latestPaymentBySchool,
+    };
+  }
+
   await syncAuthDirectoryToPublic();
   const [{ data: schoolRows, error: schoolsError }, { data: adminRows, error: adminError }, { data: subscriptionRows, error: subscriptionError }, { data: paymentRows, error: paymentError }] =
     await Promise.all([
@@ -3202,6 +4956,94 @@ const createSchoolBundle = async (payload, context) => {
   }
 
   const trialExpiry = addMonthsToDate(new Date(), durationMonths);
+
+  if (firebaseAdminDb) {
+    const schoolRef = firebaseAdminDb.collection("schools").doc();
+    let adminUserId = null;
+
+    try {
+      await schoolRef.set({
+        name,
+        email,
+        phone,
+        address,
+        attendanceMapLink: geoConfig.attendanceMapLink,
+        attendanceGeoLatitude: geoConfig.attendanceGeoLatitude,
+        attendanceGeoLongitude: geoConfig.attendanceGeoLongitude,
+        attendanceGeoRadiusMeters: geoConfig.attendanceGeoRadiusMeters,
+        subscriptionStatus: "Trial",
+        subscriptionPlan: plan,
+        expiryDate: trialExpiry,
+        themeColor: null,
+        storageLimit: null,
+        studentLimit: null,
+        staffLimit: null,
+        renewalNoticeDays: null,
+        createdAt: new Date().toISOString(),
+      });
+
+      await bootstrapSchoolCollections(schoolRef.id);
+
+      const adminAuth = await createManagedAuthUser({
+        email: adminEmail,
+        password: adminPassword,
+        name: adminName,
+        role: "admin",
+        schoolId: schoolRef.id,
+      });
+      adminUserId = adminAuth.user.id;
+
+      await insertPublicUserProfile({
+        id: adminUserId,
+        name: adminName,
+        email: adminEmail,
+        role: "admin",
+        school_id: schoolRef.id,
+      });
+
+      await logSuperAdminAuditEvent(context, schoolRef.id, "CREATE", "SUPERADMIN_SCHOOL", schoolRef.id);
+
+      const schoolSnapshot = await schoolRef.get();
+      const school = schoolSnapshot.data() ?? {};
+
+      return {
+        id: schoolRef.id,
+        name: getFirestoreString(school, ["name"]),
+        email: getFirestoreString(school, ["email"]),
+        phone: getFirestoreString(school, ["phone"]),
+        address: getFirestoreString(school, ["address"]),
+        attendanceMapLink: getFirestoreString(school, ["attendanceMapLink", "attendance_map_link"]),
+        attendanceGeoLatitude: getFirestoreNumber(school, ["attendanceGeoLatitude", "attendance_geo_latitude"]),
+        attendanceGeoLongitude: getFirestoreNumber(school, ["attendanceGeoLongitude", "attendance_geo_longitude"]),
+        attendanceGeoRadiusMeters: getFirestoreNumber(school, ["attendanceGeoRadiusMeters", "attendance_geo_radius_meters"]),
+        billingContactName: getFirestoreString(school, ["billingContactName", "billing_contact_name"]),
+        billingContactEmail: getFirestoreString(school, ["billingContactEmail", "billing_contact_email"]),
+        billingContactPhone: getFirestoreString(school, ["billingContactPhone", "billing_contact_phone"]),
+        billingAddress: getFirestoreString(school, ["billingAddress", "billing_address"]),
+        financeEmail: getFirestoreString(school, ["financeEmail", "finance_email"]),
+        taxId: getFirestoreString(school, ["taxId", "tax_id"]),
+        authorizedSignatory: getFirestoreString(school, ["authorizedSignatory", "authorized_signatory"]),
+        logoUrl: getFirestoreString(school, ["logoUrl", "logo_url"]),
+        themeColor: getFirestoreString(school, ["themeColor", "theme_color"]),
+        subscriptionStatus: getFirestoreString(school, ["subscriptionStatus", "subscription_status"]) ?? "Trial",
+        subscriptionPlan: getFirestoreString(school, ["subscriptionPlan", "subscription_plan"]) ?? plan,
+        storageLimit: getFirestoreNumber(school, ["storageLimit", "storage_limit"]),
+        studentLimit: getFirestoreNumber(school, ["studentLimit", "student_limit"]),
+        staffLimit: getFirestoreNumber(school, ["staffLimit", "staff_limit"]),
+        renewalNoticeDays: getFirestoreNumber(school, ["renewalNoticeDays", "renewal_notice_days"]),
+        expiryDate: getFirestoreString(school, ["expiryDate", "expiry_date"]) ?? trialExpiry,
+        createdAt: getFirestoreString(school, ["createdAt", "created_at"]),
+        adminName,
+        adminEmail,
+      };
+    } catch (error) {
+      await schoolRef.delete().catch(() => undefined);
+      await cleanupTable("users", "id", adminUserId);
+      await cleanupUser(adminUserId);
+      throw error;
+    }
+  }
+
   const { data: school, error: schoolError } = await service
     .from("schools")
     .insert({
@@ -3432,6 +5274,95 @@ const listSchoolsForSuperAdmin = async () => {
 };
 
 const listSchoolStorageForSuperAdmin = async () => {
+  if (firebaseAdminDb) {
+    const [{ schools }, userDocs, subscriptionDocs, paymentDocs] = await Promise.all([
+      loadSchoolDirectory(),
+      getAllFirestoreDocs("users"),
+      getAllFirestoreDocs("subscriptions"),
+      getAllFirestoreDocs("payments"),
+    ]);
+
+    const latestSubscriptionBySchool = new Map();
+    subscriptionDocs
+      .map((doc) => ({
+        school_id: getFirestoreString(doc.data(), ["schoolId", "school_id"]),
+        plan_name: getFirestoreString(doc.data(), ["planName", "plan_name"]),
+        amount: getFirestoreNumber(doc.data(), ["amount"]),
+        created_at: getFirestoreString(doc.data(), ["createdAt", "created_at"]),
+      }))
+      .sort((left, right) => String(right.created_at ?? "").localeCompare(String(left.created_at ?? "")))
+      .forEach((row) => {
+        if (!row.school_id || latestSubscriptionBySchool.has(row.school_id)) return;
+        latestSubscriptionBySchool.set(row.school_id, row);
+      });
+
+    const latestPaymentBySchool = new Map();
+    paymentDocs
+      .map((doc) => ({
+        school_id: getFirestoreString(doc.data(), ["schoolId", "school_id"]),
+        amount: getFirestoreNumber(doc.data(), ["amount"]),
+        payment_date: getFirestoreString(doc.data(), ["paymentDate", "payment_date"]),
+        created_at: getFirestoreString(doc.data(), ["createdAt", "created_at"]),
+        status: getFirestoreString(doc.data(), ["status"]),
+      }))
+      .sort((left, right) => String(right.payment_date ?? right.created_at ?? "").localeCompare(String(left.payment_date ?? left.created_at ?? "")))
+      .forEach((row) => {
+        if (row.status !== "Success" || !row.school_id || latestPaymentBySchool.has(row.school_id)) return;
+        latestPaymentBySchool.set(row.school_id, row);
+      });
+
+    const databaseUsageBySchool = new Map(
+      await Promise.all(
+        schools.map(async (school) => {
+          let totalBytes = 0;
+          let totalRows = 0;
+          for (const collectionName of SCHOOL_STORAGE_TABLES) {
+            const docs = await getFirestoreSchoolScopedDocs(collectionName, school.id);
+            totalRows += docs.length;
+            totalBytes += docs.reduce((sum, doc) => sum + Buffer.byteLength(JSON.stringify(doc.data() ?? {}), "utf8"), 0);
+          }
+          return [school.id, { totalBytes, totalRows }];
+        }),
+      ),
+    );
+
+    const userPhotoCountBySchool = new Map();
+    userDocs.forEach((doc) => {
+      const schoolId = getFirestoreString(doc.data(), ["schoolId", "school_id"]);
+      const photoUrl = getFirestoreString(doc.data(), ["photoUrl", "photo_url"]);
+      if (!schoolId || !photoUrl) return;
+      userPhotoCountBySchool.set(schoolId, Number(userPhotoCountBySchool.get(schoolId) ?? 0) + 1);
+    });
+
+    return schools.map((school) => {
+      const databaseUsage = databaseUsageBySchool.get(school.id) ?? { totalBytes: 0, totalRows: 0 };
+      const configuredLimitMb = Number.isFinite(Number(school.storageLimit)) ? Number(school.storageLimit) : null;
+      const usedBytes = databaseUsage.totalBytes;
+      const usagePercent =
+        configuredLimitMb && configuredLimitMb > 0
+          ? Math.min(100, Math.round((usedBytes / (configuredLimitMb * 1024 * 1024)) * 100))
+          : null;
+      const latestSubscription = latestSubscriptionBySchool.get(school.id);
+      const latestPayment = latestPaymentBySchool.get(school.id);
+
+      return {
+        schoolId: school.id,
+        schoolName: school.name,
+        subscriptionPlan: latestSubscription?.plan_name ?? school.subscriptionPlan ?? null,
+        subscriptionStatus: school.subscriptionStatus,
+        storageLimitMb: configuredLimitMb,
+        usedBytes,
+        fileCount: Number(userPhotoCountBySchool.get(school.id) ?? 0),
+        databaseBytes: databaseUsage.totalBytes,
+        databaseRowCount: databaseUsage.totalRows,
+        objectBytes: 0,
+        usagePercent,
+        latestPaymentAmount: Number(latestPayment?.amount ?? latestSubscription?.amount ?? 0),
+        latestPaymentDate: latestPayment?.payment_date ?? latestPayment?.created_at ?? null,
+      };
+    });
+  }
+
   const [{ schools }, { data: users, error: usersError }, { data: subscriptions, error: subscriptionsError }, { data: payments, error: paymentsError }] =
     await Promise.all([
       loadSchoolDirectory(),
@@ -3865,6 +5796,25 @@ const deletePayment = async (payload, context) => {
 };
 
 const listSubscriptionsForSuperAdmin = async () => {
+  if (firebaseAdminDb) {
+    const docs = await getAllFirestoreDocs("subscriptions");
+    return docs
+      .map((doc) =>
+        mapSubscriptionRecord({
+          id: doc.id,
+          school_id: getFirestoreString(doc.data(), ["schoolId", "school_id"]),
+          plan_name: getFirestoreString(doc.data(), ["planName", "plan_name"]),
+          amount: getFirestoreNumber(doc.data(), ["amount"]),
+          duration_months: getFirestoreNumber(doc.data(), ["durationMonths", "duration_months"]),
+          start_date: getFirestoreString(doc.data(), ["startDate", "start_date"]),
+          end_date: getFirestoreString(doc.data(), ["endDate", "end_date"]),
+          status: getFirestoreString(doc.data(), ["status"]),
+          created_at: getFirestoreString(doc.data(), ["createdAt", "created_at"]),
+        }),
+      )
+      .sort((left, right) => String(right.createdAt ?? "").localeCompare(String(left.createdAt ?? "")));
+  }
+
   const { data, error } = await service
     .from("subscriptions")
     .select("id, school_id, plan_name, amount, duration_months, start_date, end_date, status, created_at")
@@ -3888,6 +5838,23 @@ const listSubscriptionsForSuperAdmin = async () => {
 };
 
 const listPaymentsForSuperAdmin = async () => {
+  if (firebaseAdminDb) {
+    const docs = await getAllFirestoreDocs("payments");
+    return docs
+      .map((doc) =>
+        mapPaymentRecord({
+          id: doc.id,
+          school_id: getFirestoreString(doc.data(), ["schoolId", "school_id"]),
+          amount: getFirestoreNumber(doc.data(), ["amount"]),
+          payment_method: getFirestoreString(doc.data(), ["paymentMethod", "payment_method"]),
+          payment_date: getFirestoreString(doc.data(), ["paymentDate", "payment_date"]),
+          status: getFirestoreString(doc.data(), ["status"]),
+          created_at: getFirestoreString(doc.data(), ["createdAt", "created_at"]),
+        }),
+      )
+      .sort((left, right) => String(right.paymentDate ?? right.createdAt ?? "").localeCompare(String(left.paymentDate ?? left.createdAt ?? "")));
+  }
+
   const { data, error } = await service
     .from("payments")
     .select("id, school_id, amount, payment_method, payment_date, status, created_at")
@@ -3909,6 +5876,43 @@ const listPaymentsForSuperAdmin = async () => {
 };
 
 const listSuperAdminAuditLogs = async () => {
+  if (firebaseAdminDb) {
+    const [auditDocs, { schools }] = await Promise.all([
+      getAllFirestoreDocs("auditLogs"),
+      loadSchoolDirectory(),
+    ]);
+
+    const rows = auditDocs
+      .map((doc) => ({
+        id: doc.id,
+        school_id: getFirestoreString(doc.data(), ["schoolId", "school_id"]),
+        user_id: getFirestoreString(doc.data(), ["userId", "user_id"]),
+        action: getFirestoreString(doc.data(), ["action"]),
+        module: getFirestoreString(doc.data(), ["module"]),
+        record_id: getFirestoreString(doc.data(), ["recordId", "record_id"]),
+        created_at: getFirestoreString(doc.data(), ["createdAt", "created_at"]),
+      }))
+      .filter((row) => String(row.module ?? "").startsWith("SUPERADMIN_"))
+      .sort((left, right) => String(right.created_at ?? "").localeCompare(String(left.created_at ?? "")));
+
+    const schoolMap = new Map((schools ?? []).map((item) => [item.id, item.name]));
+    const userIds = Array.from(new Set(rows.map((row) => row.user_id).filter(Boolean)));
+    const users = await Promise.all(userIds.map((id) => findFirestoreUserById(id)));
+    const userMap = new Map(users.filter(Boolean).map((user) => [user.id, user.name]));
+
+    return rows.map((row) => ({
+      id: row.id,
+      schoolId: row.school_id ?? null,
+      schoolName: row.school_id ? schoolMap.get(row.school_id) ?? "Unknown school" : "Platform",
+      userId: row.user_id ?? null,
+      userName: row.user_id ? userMap.get(row.user_id) ?? "Unknown user" : "System",
+      action: row.action,
+      module: row.module,
+      recordId: row.record_id ?? null,
+      createdAt: row.created_at,
+    }));
+  }
+
   const { data, error } = await service
     .from("audit_logs")
     .select("id, school_id, user_id, action, module, record_id, created_at")
@@ -3952,6 +5956,57 @@ const getSuperAdminSchoolProfile = async (payload) => {
   const schoolId = String(payload.schoolId ?? "").trim();
   if (!schoolId) {
     throw new Error("School id is required.");
+  }
+
+  if (firebaseAdminDb) {
+    const [{ schools, schoolById, adminBySchoolId }, subscriptions, payments, auditLogs, storageRows] =
+      await Promise.all([
+        loadSchoolDirectory(),
+        listSubscriptionsForSuperAdmin(),
+        listPaymentsForSuperAdmin(),
+        listSuperAdminAuditLogs(),
+        listSchoolStorageForSuperAdmin(),
+      ]);
+
+    const school = schools.find((row) => row.id === schoolId);
+    const schoolRow = schoolById.get(schoolId) ?? null;
+    const adminUser = adminBySchoolId.get(schoolId) ?? null;
+    if (!school) throw new Error("School not found.");
+
+    return {
+      school: {
+        id: school.id,
+        name: school.name,
+        email: school.email,
+        phone: school.phone,
+        address: school.address,
+        billingContactName: school.billingContactName ?? schoolRow?.billing_contact_name ?? null,
+        billingContactEmail: school.billingContactEmail ?? schoolRow?.billing_contact_email ?? null,
+        billingContactPhone: school.billingContactPhone ?? schoolRow?.billing_contact_phone ?? null,
+        billingAddress: school.billingAddress ?? schoolRow?.billing_address ?? null,
+        financeEmail: school.financeEmail ?? schoolRow?.finance_email ?? null,
+        taxId: school.taxId ?? schoolRow?.tax_id ?? null,
+        authorizedSignatory: school.authorizedSignatory ?? schoolRow?.authorized_signatory ?? null,
+        logoUrl: school.logoUrl ?? schoolRow?.logo_url ?? null,
+        themeColor: school.themeColor ?? schoolRow?.theme_color ?? null,
+        subscriptionStatus: school.subscriptionStatus,
+        subscriptionPlan: school.subscriptionPlan,
+        storageLimit: school.storageLimit,
+        studentLimit: school.studentLimit ?? schoolRow?.student_limit ?? null,
+        staffLimit: school.staffLimit ?? schoolRow?.staff_limit ?? null,
+        renewalNoticeDays: school.renewalNoticeDays ?? schoolRow?.renewal_notice_days ?? null,
+        expiryDate: school.expiryDate,
+        createdAt: school.createdAt,
+        adminName: adminUser?.name ?? null,
+        adminEmail: adminUser?.email ?? null,
+      },
+      adminName: adminUser?.name ?? null,
+      adminEmail: adminUser?.email ?? null,
+      storage: storageRows.find((row) => row.schoolId === schoolId) ?? null,
+      subscriptions: subscriptions.filter((row) => row.schoolId === schoolId),
+      payments: payments.filter((row) => row.schoolId === schoolId),
+      auditLogs: auditLogs.filter((row) => row.schoolId === schoolId),
+    };
   }
 
   const [{ schools, schoolById, adminBySchoolId }, { data: subscriptions, error: subscriptionsError }, { data: payments, error: paymentsError }, auditLogs, storageRows] =
@@ -4457,6 +6512,41 @@ const deleteStudentBundle = async (payload) => {
   const id = String(payload.id ?? "");
   if (!id) throw new Error("Student id is required.");
 
+  if (firebaseAdminDb) {
+    const studentRef = firebaseAdminDb.collection("students").doc(id);
+    const studentSnapshot = await studentRef.get();
+    if (!studentSnapshot.exists) throw new Error("Student not found.");
+
+    const studentData = studentSnapshot.data() ?? {};
+    const studentUserId = getFirestoreString(studentData, ["userId", "user_id"]);
+    const parentId = getFirestoreString(studentData, ["parentId", "parent_id"]);
+
+    let parentUserId = null;
+    let shouldDeleteParentAuth = false;
+
+    if (parentId) {
+      const parentRef = firebaseAdminDb.collection("parents").doc(parentId);
+      const parentSnapshot = await parentRef.get();
+      parentUserId = parentSnapshot.exists ? getFirestoreString(parentSnapshot.data() ?? {}, ["userId", "user_id"]) : null;
+
+      const siblingDocs = await firebaseAdminDb.collection("students").where("parentId", "==", parentId).get();
+      const siblingCount = siblingDocs.docs.filter((doc) => doc.id !== id).length;
+      shouldDeleteParentAuth = siblingCount === 0;
+    }
+
+    await studentRef.delete();
+    await cleanupTable("users", "id", studentUserId);
+    await cleanupUser(studentUserId);
+
+    if (parentId && parentUserId && shouldDeleteParentAuth) {
+      await firebaseAdminDb.collection("parents").doc(parentId).delete();
+      await cleanupTable("users", "id", parentUserId);
+      await cleanupUser(parentUserId);
+    }
+
+    return null;
+  }
+
   const { data, error } = await service
     .from("students")
     .select("user_id, parent_id")
@@ -4465,8 +6555,10 @@ const deleteStudentBundle = async (payload) => {
   if (error || !data) throw new Error(error?.message ?? "Student not found.");
 
   let parentUserId = null;
+  let parentId = null;
   let shouldDeleteParentAuth = false;
   if (data.parent_id) {
+    parentId = data.parent_id;
     const { data: parentData } = await service
       .from("parents")
       .select("user_id")
@@ -4486,9 +6578,19 @@ const deleteStudentBundle = async (payload) => {
 
   const { error: studentDeleteError } = await service.from("students").delete().eq("id", id);
   if (studentDeleteError) throw new Error(studentDeleteError.message);
+
+  const { error: studentUserDeleteError } = await service.from("users").delete().eq("id", data.user_id);
+  if (studentUserDeleteError) throw new Error(studentUserDeleteError.message);
+
   await cleanupUser(data.user_id);
 
-  if (parentUserId && shouldDeleteParentAuth) {
+  if (parentId && parentUserId && shouldDeleteParentAuth) {
+    const { error: parentDeleteError } = await service.from("parents").delete().eq("id", parentId);
+    if (parentDeleteError) throw new Error(parentDeleteError.message);
+
+    const { error: parentUserDeleteError } = await service.from("users").delete().eq("id", parentUserId);
+    if (parentUserDeleteError) throw new Error(parentUserDeleteError.message);
+
     await cleanupUser(parentUserId);
   }
 
@@ -4591,6 +6693,15 @@ export const handleAdminApi = async (req, res) => {
       case "approve_applicant":
         await requireAdminOrWorkspace(authHeader, ["admission"]);
         break;
+      case "get_auth_context":
+        await requireAuthenticatedUser(authHeader);
+        break;
+      case "list_firestore_collection":
+      case "get_firestore_document":
+      case "set_firestore_document":
+      case "delete_firestore_document":
+        await requireAuthenticatedUser(authHeader);
+        break;
       case "create_school_bundle":
       case "record_school_payment":
       case "list_schools":
@@ -4667,6 +6778,21 @@ export const handleAdminApi = async (req, res) => {
         return true;
       case "approve_applicant":
         send(res, 200, { data: await approveApplicant(payload, authHeader) });
+        return true;
+      case "get_auth_context":
+        send(res, 200, { data: await getAuthContext(authHeader) });
+        return true;
+      case "list_firestore_collection":
+        send(res, 200, { data: await listFirestoreCollectionForClient(payload, authHeader) });
+        return true;
+      case "get_firestore_document":
+        send(res, 200, { data: await getFirestoreDocumentForClient(payload, authHeader) });
+        return true;
+      case "set_firestore_document":
+        send(res, 200, { data: await setFirestoreDocumentForClient(payload, authHeader) });
+        return true;
+      case "delete_firestore_document":
+        send(res, 200, { data: await deleteFirestoreDocumentForClient(payload, authHeader) });
         return true;
       case "update_student_bundle":
         send(res, 200, { data: await updateStudentBundle(payload, authHeader) });

@@ -1,7 +1,25 @@
-import type { Session } from "@supabase/supabase-js";
-import { ROLES, isSuperAdminRole, type AppRole } from "../config/roles";
-import { authStore, getBootstrapAdmin, type AuthUser, type CurrentSchool } from "../store/authStore";
-import { hasSupabaseConfig, supabase } from "./supabaseClient";
+import {
+  EmailAuthProvider,
+  type User as FirebaseUser,
+  getIdTokenResult,
+  reauthenticateWithCredential,
+  signInWithEmailAndPassword,
+  signOut,
+  updatePassword as updateFirebasePassword,
+} from "firebase/auth";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  where,
+} from "firebase/firestore";
+import { ROLES, type AppRole } from "../config/roles";
+import { authStore, getBootstrapAdmin, type AppSession, type AuthUser, type CurrentSchool } from "../store/authStore";
+import { ensureFirebasePersistence, firebaseAuth, firebaseDb, hasFirebaseConfig } from "./firebaseClient";
+import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../utils/adminApi";
 
 const DEFAULT_ADMIN = {
   email: "superadmin@gmail.com",
@@ -18,24 +36,6 @@ const DEFAULT_ADMIN = {
 
 const isDefaultAdminLogin = (email: string, password: string) =>
   email.trim().toLowerCase() === DEFAULT_ADMIN.email && password === DEFAULT_ADMIN.password;
-
-const getSupabaseProjectRef = () => {
-  const rawUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
-  if (!rawUrl) return "";
-
-  try {
-    return new URL(rawUrl).hostname.split(".")[0] ?? "";
-  } catch {
-    return "";
-  }
-};
-
-const hasPersistedSupabaseSession = () => {
-  const projectRef = getSupabaseProjectRef();
-  if (!projectRef) return false;
-
-  return Boolean(localStorage.getItem(`sb-${projectRef}-auth-token`));
-};
 
 type UsersRow = {
   id: string;
@@ -59,35 +59,23 @@ const normalizeRole = (role: string | null | undefined): AppRole => {
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
+
   if (value === ROLES.SUPER_ADMIN || value === "superadmin" || value === "platform_owner") return ROLES.SUPER_ADMIN;
   if (value === ROLES.ADMIN || value === "school_admin") return ROLES.ADMIN;
   if (value === ROLES.PARENT) return ROLES.PARENT;
   if (value === ROLES.STUDENT) return ROLES.STUDENT;
-  if (
-    value === ROLES.STAFF ||
-    value === "teacher" ||
-    value === "hr" ||
-    value === "accounts" ||
-    value === "transport" ||
-    value === "admission"
-  ) {
-    return ROLES.STAFF;
-  }
+  if (["staff", "teacher", "hr", "accounts", "transport", "admission"].includes(value)) return ROLES.STAFF;
   return ROLES.STAFF;
 };
 
-const extractSessionHints = (session: Session) => {
-  const userMetadata = (session.user.user_metadata ?? {}) as Record<string, unknown>;
-  const appMetadata = (session.user.app_metadata ?? {}) as Record<string, unknown>;
-  const hintedRole = normalizeRole(
-    String(appMetadata.role ?? userMetadata.role ?? session.user.role ?? ROLES.STAFF),
-  );
-  const hintedSchoolId = String(appMetadata.school_id ?? userMetadata.school_id ?? "").trim() || null;
-  const hintedName =
-    String(userMetadata.name ?? appMetadata.name ?? session.user.email?.split("@")[0] ?? "INDDIA ERP User").trim() ||
-    "INDDIA ERP User";
-
-  return { hintedRole, hintedSchoolId, hintedName };
+const ensureSingleRow = <T>(rows: T[], emptyMessage: string, duplicateMessage: string) => {
+  if (rows.length === 0) {
+    throw new Error(emptyMessage);
+  }
+  if (rows.length > 1) {
+    throw new Error(duplicateMessage);
+  }
+  return rows[0];
 };
 
 const mapUser = (user: UsersRow): AuthUser => ({
@@ -116,145 +104,291 @@ const createSchoolFallback = (schoolId: string): CurrentSchool => ({
   themeColor: null,
 });
 
-const isAuditLogUserForeignKeyError = (message: string) => {
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("audit_logs_user_id_fkey") ||
-    (normalized.includes("audit_logs") &&
-      normalized.includes("foreign key") &&
-      normalized.includes("user_id"))
-  );
+type SessionHints = {
+  hintedRole: AppRole;
+  hintedSchoolId: string | null;
+  hintedName: string;
 };
 
-const isAuditLogSchoolForeignKeyError = (message: string) => {
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("audit_logs_school_id_fkey") ||
-    (normalized.includes("audit_logs") &&
-      normalized.includes("foreign key") &&
-      normalized.includes("school_id"))
-  );
+type ResolvedAuthState = {
+  user: AuthUser | null;
+  role: AppRole | null;
+  school: CurrentSchool | null;
+  session: AppSession | null;
 };
 
-const withTimeout = async <T>(promise: Promise<T>, message: string, ms = 20000): Promise<T> =>
-  Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      window.setTimeout(() => reject(new Error(message)), ms);
-    }),
-  ]);
-
-let authOperationQueue = Promise.resolve();
-
-const runExclusiveAuth = async <T>(operation: () => Promise<T>): Promise<T> => {
-  const scheduled = authOperationQueue.then(operation, operation);
-  authOperationQueue = scheduled.then(
-    () => undefined,
-    () => undefined,
-  );
-  return scheduled;
+type BackendAuthContext = {
+  user: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    role: string | null;
+    school_id: string | null;
+  };
+  school: SchoolRow | null;
 };
 
-const mapSessionUserFallback = (session: Session): AuthUser => {
-  const { hintedRole, hintedSchoolId, hintedName } = extractSessionHints(session);
+const schoolProfileCache = new Map<string, Promise<CurrentSchool | null>>();
+const userProfileCache = new Map<string, Promise<AuthUser>>();
+const userProfileByEmailCache = new Map<string, Promise<AuthUser>>();
+let lastResolvedAuthState: { uid: string; value: ResolvedAuthState } | null = null;
+
+const postToAdminApi = async (body: string, accessToken: string) => {
+  let lastError: unknown = null;
+  const endpoints = getAdminApiEndpoints();
+
+  if (endpoints.length === 0) {
+    throw new Error(getAdminApiUnavailableMessage());
+  }
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body,
+      });
+
+      if (response.status === 404 && endpoint.startsWith("/")) {
+        lastError = new Error(`Admin API route not found at ${endpoint}.`);
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError instanceof TypeError) {
+    throw new Error(getAdminApiUnavailableMessage());
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Unable to reach the admin API.");
+};
+
+const parseAdminApiResponse = async <T>(response: Response) => {
+  const raw = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  let result: { data?: T; error?: string } = { data: undefined };
+
+  if (raw) {
+    result = contentType.includes("application/json") ? (JSON.parse(raw) as { data?: T; error?: string }) : { error: raw };
+  }
+
+  return result;
+};
+
+const fetchAuthContextFromServer = async (accessToken: string) => {
+  const response = await postToAdminApi(JSON.stringify({ action: "get_auth_context", payload: {} }), accessToken);
+  const result = await parseAdminApiResponse<BackendAuthContext>(response);
+
+  if (!response.ok || result.error || !result.data?.user) {
+    throw new Error(result.error ?? `Unable to load auth context (${response.status} ${response.statusText}).`);
+  }
+
+  return result.data;
+};
+
+const mapFirebaseSession = (user: FirebaseUser, tokenResult: Awaited<ReturnType<typeof getIdTokenResult>>): AppSession => {
   return {
-    id: session.user.id,
+    accessToken: tokenResult.token,
+    refreshToken: user.refreshToken || null,
+    expiresAt: tokenResult.expirationTime ? new Date(tokenResult.expirationTime).getTime() : null,
+    uid: user.uid,
+    email: user.email,
+  };
+};
+
+const extractSessionHints = (
+  user: FirebaseUser,
+  tokenResult: Awaited<ReturnType<typeof getIdTokenResult>>,
+): SessionHints => {
+  const claims = tokenResult.claims ?? {};
+  const hintedRole = normalizeRole(String(claims.role ?? ROLES.STAFF));
+  const hintedSchoolId = String(claims.school_id ?? "").trim() || null;
+  const hintedName = String(claims.name ?? user.displayName ?? user.email?.split("@")[0] ?? "INDDIA ERP User").trim() || "INDDIA ERP User";
+  return { hintedRole, hintedSchoolId, hintedName };
+};
+
+const mapSessionUserFallback = (user: FirebaseUser, hints: SessionHints): AuthUser => {
+  const { hintedRole, hintedSchoolId, hintedName } = hints;
+  return {
+    id: user.uid,
     name: hintedName,
-    email: session.user.email ?? null,
+    email: user.email,
     role: hintedRole,
     schoolId: hintedSchoolId,
   };
 };
 
-const mapDefaultAdminSessionUser = (session: Session): AuthUser => ({
-  id: session.user.id,
+const mapDefaultAdminSessionUser = (user: FirebaseUser): AuthUser => ({
+  id: user.uid,
   name: DEFAULT_ADMIN.user.name,
-  email: session.user.email ?? DEFAULT_ADMIN.email,
+  email: user.email ?? DEFAULT_ADMIN.email,
   role: ROLES.SUPER_ADMIN,
   schoolId: null,
 });
 
-const ensureSingleRow = <T>(rows: T[] | null, emptyMessage: string, duplicateMessage: string) => {
-  const safeRows = rows ?? [];
-  if (safeRows.length === 0) {
-    throw new Error(emptyMessage);
-  }
-  if (safeRows.length > 1) {
-    throw new Error(duplicateMessage);
-  }
-  return safeRows[0];
-};
-
 const fetchSchoolProfile = async (schoolId: string | null | undefined): Promise<CurrentSchool | null> => {
-  if (!schoolId) {
-    return null;
+  if (!schoolId) return null;
+  if (!firebaseDb) throw new Error("Firebase is not configured. Add Firebase environment values.");
+
+  const cacheKey = schoolId.trim();
+  const cached = schoolProfileCache.get(cacheKey);
+  if (cached) {
+    return cached;
   }
 
-  if (!supabase) {
-    throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
-  }
-
-  const { data, error } = await supabase
-    .from("schools")
-    .select("id, name, subscription_status, subscription_plan, expiry_date, theme_color")
-    .eq("id", schoolId)
-    .limit(2);
-
-  if (error) {
-    const normalized = error.message.toLowerCase();
-    if (
-      normalized.includes("row-level security") ||
-      normalized.includes("permission denied") ||
-      normalized.includes("cannot coerce the result to a single json object")
-    ) {
-      return createSchoolFallback(schoolId);
+  const request = (async () => {
+    const snapshot = await getDoc(doc(firebaseDb, "schools", cacheKey));
+    if (!snapshot.exists()) {
+      return createSchoolFallback(cacheKey);
     }
-    throw new Error(error.message);
-  }
 
-  if (!data?.length) {
-    console.warn(`[auth] School ${schoolId} was not found. Falling back to a synthetic school profile.`);
-    return createSchoolFallback(schoolId);
-  }
+    return mapSchool({
+      id: snapshot.id,
+      ...(snapshot.data() as Omit<SchoolRow, "id">),
+    });
+  })().catch((error) => {
+    schoolProfileCache.delete(cacheKey);
+    throw error;
+  });
 
-  return mapSchool(
-    ensureSingleRow(
-      data as SchoolRow[],
-      "Unable to load the school profile.",
-      "Multiple school records were found for this account. Check the schools table.",
-    ),
-  );
+  schoolProfileCache.set(cacheKey, request);
+  return request;
 };
 
-const resolveAuthFromSession = async (session: Session) => {
-  const hints = extractSessionHints(session);
+const fetchUserProfile = async (userId: string): Promise<AuthUser> => {
+  if (!firebaseDb) throw new Error("Firebase is not configured. Add Firebase environment values.");
+
+  const cacheKey = userId.trim();
+  const cached = userProfileCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const request = (async () => {
+    const snapshot = await getDoc(doc(firebaseDb, "users", cacheKey));
+    if (!snapshot.exists()) {
+      throw new Error("Unable to load the user profile.");
+    }
+
+    return mapUser({
+      id: snapshot.id,
+      ...(snapshot.data() as Omit<UsersRow, "id">),
+    });
+  })().catch((error) => {
+    userProfileCache.delete(cacheKey);
+    throw error;
+  });
+
+  userProfileCache.set(cacheKey, request);
+  return request;
+};
+
+const fetchUserProfileByEmail = async (email: string): Promise<AuthUser> => {
+  if (!firebaseDb) throw new Error("Firebase is not configured. Add Firebase environment values.");
+
+  const cacheKey = email.trim().toLowerCase();
+  const cached = userProfileByEmailCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const request = (async () => {
+    const snapshot = await getDocs(
+      query(
+        collection(firebaseDb, "users"),
+        where("email", "==", cacheKey),
+        limit(2),
+      ),
+    );
+
+    const rows = snapshot.docs.map((item) => ({
+      id: item.id,
+      ...(item.data() as Omit<UsersRow, "id">),
+    }));
+
+    return mapUser(
+      ensureSingleRow(
+        rows,
+        "Unable to load the user profile.",
+        "Multiple user profiles were found for this email. Check the users collection.",
+      ),
+    );
+  })().catch((error) => {
+    userProfileByEmailCache.delete(cacheKey);
+    throw error;
+  });
+
+  userProfileByEmailCache.set(cacheKey, request);
+  return request;
+};
+
+const resolveAuthFromUser = async (firebaseUser: FirebaseUser) => {
+  if (lastResolvedAuthState?.uid === firebaseUser.uid) {
+    return lastResolvedAuthState.value;
+  }
+
+  const tokenResult = await getIdTokenResult(firebaseUser);
+  const hints = extractSessionHints(firebaseUser, tokenResult);
+  const session = mapFirebaseSession(firebaseUser, tokenResult);
+
   try {
-    const user = await withTimeout(fetchUserProfile(session.user.id), "Loading session profile timed out.");
+    const backendContext = await fetchAuthContextFromServer(session.accessToken);
+    const user = mapUser({
+      id: backendContext.user.id,
+      name: backendContext.user.name ?? firebaseUser.displayName ?? firebaseUser.email?.split("@")[0] ?? "INDDIA ERP User",
+      email: backendContext.user.email ?? firebaseUser.email,
+      role: backendContext.user.role ?? hints.hintedRole,
+      school_id: backendContext.user.school_id,
+    });
     const resolvedUser =
       user.role === ROLES.STAFF && (hints.hintedRole === ROLES.ADMIN || hints.hintedRole === ROLES.SUPER_ADMIN)
         ? { ...user, role: hints.hintedRole, schoolId: hints.hintedSchoolId ?? user.schoolId }
         : user;
-    const school = await fetchSchoolProfile(resolvedUser.schoolId);
-    return { user: resolvedUser, role: resolvedUser.role, school, session };
+    const school = backendContext.school
+      ? mapSchool({
+          id: backendContext.school.id,
+          name: backendContext.school.name,
+          subscription_status: backendContext.school.subscription_status,
+          subscription_plan: backendContext.school.subscription_plan,
+          expiry_date: backendContext.school.expiry_date,
+          theme_color: backendContext.school.theme_color,
+        })
+      : await fetchSchoolProfile(resolvedUser.schoolId);
+    const result = { user: resolvedUser, role: resolvedUser.role, school, session };
+    lastResolvedAuthState = { uid: firebaseUser.uid, value: result };
+    return result;
   } catch (profileError) {
-    const sessionEmail = session.user.email?.trim().toLowerCase();
+    const sessionEmail = firebaseUser.email?.trim().toLowerCase();
     if (sessionEmail === DEFAULT_ADMIN.email) {
-      return { user: mapDefaultAdminSessionUser(session), role: ROLES.SUPER_ADMIN, school: null, session };
+      const result = { user: mapDefaultAdminSessionUser(firebaseUser), role: ROLES.SUPER_ADMIN, school: null, session };
+      lastResolvedAuthState = { uid: firebaseUser.uid, value: result };
+      return result;
     }
 
-    if (session.user.email) {
+    if (firebaseUser.email) {
       try {
-        const user = await withTimeout(fetchUserProfileByEmail(session.user.email), "Loading session profile timed out.");
+        const user = await fetchUserProfileByEmail(firebaseUser.email);
         const resolvedUser =
           user.role === ROLES.STAFF && (hints.hintedRole === ROLES.ADMIN || hints.hintedRole === ROLES.SUPER_ADMIN)
             ? { ...user, role: hints.hintedRole, schoolId: hints.hintedSchoolId ?? user.schoolId }
             : user;
         const school = await fetchSchoolProfile(resolvedUser.schoolId);
-        return { user: resolvedUser, role: resolvedUser.role, school, session };
+        const result = { user: resolvedUser, role: resolvedUser.role, school, session };
+        lastResolvedAuthState = { uid: firebaseUser.uid, value: result };
+        return result;
       } catch {
-        const fallbackUser = mapSessionUserFallback(session);
+        const fallbackUser = mapSessionUserFallback(firebaseUser, hints);
         const school = await fetchSchoolProfile(fallbackUser.schoolId);
-        return { user: fallbackUser, role: fallbackUser.role, school, session };
+        const result = { user: fallbackUser, role: fallbackUser.role, school, session };
+        lastResolvedAuthState = { uid: firebaseUser.uid, value: result };
+        return result;
       }
     }
 
@@ -262,230 +396,63 @@ const resolveAuthFromSession = async (session: Session) => {
   }
 };
 
-let restoreSessionPromise: Promise<{
-  user: AuthUser | null;
-  role: AppRole | null;
-  school: CurrentSchool | null;
-  session: Session | null;
-}> | null = null;
-
-const fetchUserProfileByEmail = async (email: string): Promise<AuthUser> => {
-  if (!supabase) {
-    throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+const ensureFirebaseReady = async () => {
+  if (!firebaseAuth || !hasFirebaseConfig) {
+    throw new Error("Firebase is not configured. Add Firebase environment values.");
   }
 
-  const { data, error } = await supabase
-    .from("users")
-    .select("id, name, email, role, school_id")
-    .eq("email", email.trim().toLowerCase())
-    .limit(2);
-
-  if (error) {
-    throw new Error(error?.message ?? "Unable to load the user profile.");
-  }
-
-  return mapUser(
-    ensureSingleRow(
-      data as UsersRow[] | null,
-      "Unable to load the user profile.",
-      "Multiple user profiles were found for this email. Check the users table.",
-    ),
-  );
+  await ensureFirebasePersistence();
+  return firebaseAuth;
 };
 
-const fetchUserProfile = async (userId: string): Promise<AuthUser> => {
-  if (!supabase) {
-    throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
-  }
-
-  const { data, error } = await supabase
-    .from("users")
-    .select("id, name, email, role, school_id")
-    .eq("id", userId)
-    .limit(2);
-
-  if (error) {
-    throw new Error(error?.message ?? "Unable to load the user profile.");
-  }
-
-  return mapUser(
-    ensureSingleRow(
-      data as UsersRow[] | null,
-      "Unable to load the user profile.",
-      "Multiple user profiles were found for this account. Check the users table.",
-    ),
-  );
+const signInAndResolve = async (email: string, password: string) => {
+  const auth = await ensureFirebaseReady();
+  const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+  return resolveAuthFromUser(credential.user);
 };
 
 export const loginStaff = async (email: string, password: string) => {
   const trimmedEmail = email.trim().toLowerCase();
 
-  if (isDefaultAdminLogin(trimmedEmail, password) && !hasSupabaseConfig) {
-    return { user: DEFAULT_ADMIN.user, role: ROLES.SUPER_ADMIN, school: null, session: null as Session | null };
+  if (isDefaultAdminLogin(trimmedEmail, password) && !hasFirebaseConfig) {
+    return { user: DEFAULT_ADMIN.user, role: ROLES.SUPER_ADMIN, school: null, session: null as AppSession | null };
   }
 
-  if (!supabase) {
-    throw new Error("Supabase is not configured. Only the bootstrap admin can sign in right now.");
-  }
-  const client = supabase;
+  const result = await signInAndResolve(trimmedEmail, password);
 
-  const { data, error } = await runExclusiveAuth(() =>
-    withTimeout(
-      client.auth.signInWithPassword({
-        email: trimmedEmail,
-        password,
-      }),
-      "Staff sign in timed out. Please try again.",
-    ),
-  );
-
-  if (error || !data.session?.user) {
-    if (isDefaultAdminLogin(trimmedEmail, password)) {
-      throw new Error(
-        "Default super admin must exist in Supabase Auth for database access. Create superadmin@gmail.com in Supabase Authentication with password admin123, then sign in again.",
-      );
-    }
-
-    throw new Error(error?.message ?? "Invalid email or password.");
+  if (![ROLES.ADMIN, ROLES.STAFF, ROLES.SUPER_ADMIN].includes(result.role)) {
+    throw new Error("This account is not configured as a staff login.");
   }
 
-  const hints = extractSessionHints(data.session);
-
-  try {
-    const user = await withTimeout(fetchUserProfile(data.session.user.id), "Loading staff profile timed out.");
-    const resolvedUser =
-      user.role === ROLES.STAFF && (hints.hintedRole === ROLES.ADMIN || hints.hintedRole === ROLES.SUPER_ADMIN)
-        ? { ...user, role: hints.hintedRole, schoolId: hints.hintedSchoolId ?? user.schoolId }
-        : user;
-    if (resolvedUser.role !== ROLES.ADMIN && resolvedUser.role !== ROLES.STAFF && resolvedUser.role !== ROLES.SUPER_ADMIN) {
-      throw new Error("This account is not configured as a staff login.");
-    }
-    const school = await fetchSchoolProfile(resolvedUser.schoolId);
-    return { user: resolvedUser, role: resolvedUser.role, school, session: data.session };
-  } catch (profileError) {
-    if (isDefaultAdminLogin(trimmedEmail, password)) {
-      return { user: mapDefaultAdminSessionUser(data.session), role: ROLES.SUPER_ADMIN, school: null, session: data.session };
-    }
-
-    if (data.session.user.email) {
-      try {
-        const user = await withTimeout(fetchUserProfileByEmail(data.session.user.email), "Loading staff profile timed out.");
-        const resolvedUser =
-          user.role === ROLES.STAFF && (hints.hintedRole === ROLES.ADMIN || hints.hintedRole === ROLES.SUPER_ADMIN)
-            ? { ...user, role: hints.hintedRole, schoolId: hints.hintedSchoolId ?? user.schoolId }
-            : user;
-        if (resolvedUser.role !== ROLES.ADMIN && resolvedUser.role !== ROLES.STAFF && resolvedUser.role !== ROLES.SUPER_ADMIN) {
-          throw new Error("This account is not configured as a staff login.");
-        }
-        const school = await fetchSchoolProfile(resolvedUser.schoolId);
-        return { user: resolvedUser, role: resolvedUser.role, school, session: data.session };
-      } catch {
-        const fallbackUser = mapSessionUserFallback(data.session);
-        if (fallbackUser.role === ROLES.ADMIN || fallbackUser.role === ROLES.STAFF || fallbackUser.role === ROLES.SUPER_ADMIN) {
-          const school = await fetchSchoolProfile(fallbackUser.schoolId);
-          return { user: fallbackUser, role: fallbackUser.role, school, session: data.session };
-        }
-      }
-    }
-
-    throw profileError;
-  }
+  return result;
 };
 
 export const loginParent = async (email: string, password: string) => {
-  const trimmedEmail = email.trim().toLowerCase();
+  const result = await signInAndResolve(email, password);
 
-  if (!supabase) {
-    throw new Error("Supabase is required for parent login.");
-  }
-  const client = supabase;
-
-  const { data, error } = await runExclusiveAuth(() =>
-    withTimeout(
-      client.auth.signInWithPassword({
-        email: trimmedEmail,
-        password,
-      }),
-      "Parent sign in timed out. Please try again.",
-    ),
-  );
-
-  if (error || !data.session?.user) {
-    throw new Error(error?.message ?? "Invalid parent email or password.");
-  }
-
-  let user: AuthUser;
-  try {
-    user = await withTimeout(fetchUserProfile(data.session.user.id), "Loading parent profile timed out.");
-  } catch {
-    if (data.session.user.email) {
-      try {
-        user = await withTimeout(fetchUserProfileByEmail(data.session.user.email), "Loading parent profile timed out.");
-      } catch {
-        user = mapSessionUserFallback(data.session);
-      }
-    } else {
-      throw new Error("Unable to load the parent profile.");
-    }
-  }
-
-  if (user.role !== ROLES.PARENT) {
+  if (result.role !== ROLES.PARENT) {
     throw new Error("This account is not configured as a parent login.");
   }
 
-  const school = await fetchSchoolProfile(user.schoolId);
-  return { user, role: user.role, school, session: data.session };
+  return result;
 };
 
 export const loginStudent = async (studentId: string, password: string) => {
-  if (!supabase) {
-    throw new Error("Supabase is required for student login.");
-  }
-  const client = supabase;
-
+  const auth = await ensureFirebaseReady();
   const normalizedStudentId = studentId.trim().toUpperCase();
   const fallbackEmail = `${normalizedStudentId.toLowerCase()}@students.inddiaerp.local`;
+  const credential = await signInWithEmailAndPassword(auth, fallbackEmail, password);
+  const result = await resolveAuthFromUser(credential.user);
 
-  const { data: authData, error: authError } = await runExclusiveAuth(() =>
-    withTimeout(
-      client.auth.signInWithPassword({
-        email: fallbackEmail,
-        password,
-      }),
-      "Student sign in timed out. Please try again.",
-    ),
-  );
-
-  if (authError || !authData.session?.user) {
-    throw new Error(authError?.message ?? "Invalid Student ID or password.");
-  }
-
-  let user: AuthUser;
-  try {
-    user = await withTimeout(fetchUserProfile(authData.session.user.id), "Loading student profile timed out.");
-  } catch {
-    if (authData.session.user.email) {
-      try {
-        user = await withTimeout(fetchUserProfileByEmail(authData.session.user.email), "Loading student profile timed out.");
-      } catch {
-        user = mapSessionUserFallback(authData.session);
-      }
-    } else {
-      throw new Error("Unable to load the student profile.");
-    }
-  }
-
-  if (user.role !== ROLES.STUDENT) {
+  if (result.role !== ROLES.STUDENT) {
     throw new Error("This account is not configured as a student login.");
   }
 
-  const school = await fetchSchoolProfile(user.schoolId);
-  return { user, role: user.role, school, session: authData.session };
+  return result;
 };
 
 export const loginWithIdentifier = async (identifier: string, password: string) => {
   const normalizedIdentifier = identifier.trim();
-
   if (!normalizedIdentifier) {
     throw new Error("Email or Student ID is required.");
   }
@@ -493,133 +460,60 @@ export const loginWithIdentifier = async (identifier: string, password: string) 
   if (normalizedIdentifier.includes("@")) {
     const trimmedEmail = normalizedIdentifier.toLowerCase();
 
-    if (isDefaultAdminLogin(trimmedEmail, password) && !hasSupabaseConfig) {
-      return { user: DEFAULT_ADMIN.user, role: ROLES.SUPER_ADMIN, school: null, session: null as Session | null };
+    if (isDefaultAdminLogin(trimmedEmail, password) && !hasFirebaseConfig) {
+      return { user: DEFAULT_ADMIN.user, role: ROLES.SUPER_ADMIN, school: null, session: null as AppSession | null };
     }
 
-    if (!supabase) {
-      throw new Error("Supabase is not configured. Only the bootstrap admin can sign in right now.");
-    }
-    const client = supabase;
-
-    const { data, error } = await runExclusiveAuth(() =>
-      withTimeout(
-        client.auth.signInWithPassword({
-          email: trimmedEmail,
-          password,
-        }),
-        "Sign in timed out. Please try again.",
-      ),
-    );
-
-    if (error || !data.session?.user) {
-      if (isDefaultAdminLogin(trimmedEmail, password)) {
-        throw new Error(
-          "Default super admin must exist in Supabase Auth for database access. Create superadmin@gmail.com in Supabase Authentication with password admin123, then sign in again.",
-        );
-      }
-
-      throw new Error(error?.message ?? "Invalid email or password.");
-    }
-
-    return resolveAuthFromSession(data.session);
+    return signInAndResolve(trimmedEmail, password);
   }
 
-  const result = await loginStudent(normalizedIdentifier, password);
-  if (result.role !== ROLES.STUDENT) {
-    throw new Error("Student ID login is available only for student accounts.");
-  }
-
-  return result;
+  return loginStudent(normalizedIdentifier, password);
 };
 
 export const changeCurrentUserPassword = async (currentPassword: string, nextPassword: string) => {
   const bootstrapAdmin = getBootstrapAdmin();
   if (bootstrapAdmin?.isBootstrapAdmin) {
-    throw new Error("Password change is not available for the local bootstrap super admin. Update the Supabase account instead.");
+    throw new Error("Password change is not available for the local bootstrap super admin.");
   }
 
-  if (!supabase) {
-    throw new Error("Supabase is required to change passwords.");
-  }
-  const client = supabase;
-
-  const {
-    data: { session },
-  } = await runExclusiveAuth(() => client.auth.getSession());
-
-  const sessionEmail = session?.user.email;
-  if (!sessionEmail) {
+  const auth = await ensureFirebaseReady();
+  const currentUser = auth.currentUser;
+  if (!currentUser?.email) {
     throw new Error("Active session not found. Please sign in again.");
   }
 
-  const verify = await runExclusiveAuth(() =>
-    withTimeout(
-      client.auth.signInWithPassword({
-        email: sessionEmail,
-        password: currentPassword,
-      }),
-      "Password verification timed out. Please try again.",
-    ),
-  );
-
-  if (verify.error || !verify.data.session?.user) {
-    throw new Error(verify.error?.message ?? "Current password is incorrect.");
-  }
-
-  const { error: updateError } = await withTimeout(
-    client.auth.updateUser({ password: nextPassword }),
-    "Password update timed out. Please try again.",
-  );
-
-  if (updateError) {
-    throw new Error(updateError.message);
-  }
-
-  const { error: auditError } = await supabase.from("audit_logs").insert({
-    school_id: authStore.getState().school?.id ?? authStore.getState().user?.schoolId ?? null,
-    user_id: session.user.id,
-    action: "UPDATE",
-    module: "PASSWORD",
-    record_id: null,
-  });
-
-  if (auditError) {
-    if (isAuditLogUserForeignKeyError(auditError.message) || isAuditLogSchoolForeignKeyError(auditError.message)) {
-      return;
-    }
-    throw new Error(auditError.message);
-  }
+  const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
+  await reauthenticateWithCredential(currentUser, credential);
+  await updateFirebasePassword(currentUser, nextPassword);
 };
+
+let restoreSessionPromise: Promise<{
+  user: AuthUser | null;
+  role: AppRole | null;
+  school: CurrentSchool | null;
+  session: AppSession | null;
+}> | null = null;
 
 export const restoreSession = async () => {
   const bootstrapAdmin = getBootstrapAdmin();
   if (bootstrapAdmin) {
-    return { user: bootstrapAdmin, role: bootstrapAdmin.role, school: null, session: null as Session | null };
+    return { user: bootstrapAdmin, role: bootstrapAdmin.role, school: null, session: null as AppSession | null };
   }
 
-  if (!supabase) {
-    return { user: null, role: null, school: null, session: null as Session | null };
+  if (!firebaseAuth || !hasFirebaseConfig) {
+    return { user: null, role: null, school: null, session: null as AppSession | null };
   }
 
-  if (!hasPersistedSupabaseSession()) {
-    return { user: null, role: null, school: null, session: null as Session | null };
-  }
-  const client = supabase;
+  await ensureFirebasePersistence();
 
   if (!restoreSessionPromise) {
     restoreSessionPromise = (async () => {
-      const {
-        data: { session },
-      } = await runExclusiveAuth(() =>
-        withTimeout(client.auth.getSession(), "Session restore timed out."),
-      );
-
-      if (!session?.user) {
-        return { user: null, role: null, school: null, session: null as Session | null };
+      const currentUser = firebaseAuth.currentUser;
+      if (!currentUser) {
+        return { user: null, role: null, school: null, session: null as AppSession | null };
       }
 
-      return resolveAuthFromSession(session);
+      return resolveAuthFromUser(currentUser);
     })().finally(() => {
       restoreSessionPromise = null;
     });
@@ -628,25 +522,26 @@ export const restoreSession = async () => {
   return restoreSessionPromise;
 };
 
-export const hydrateAuthSession = async (session: Session | null) => {
+export const hydrateAuthSession = async (firebaseUser: FirebaseUser | null) => {
   const bootstrapAdmin = getBootstrapAdmin();
   if (bootstrapAdmin) {
-    return { user: bootstrapAdmin, role: bootstrapAdmin.role, school: null, session: null as Session | null };
+    return { user: bootstrapAdmin, role: bootstrapAdmin.role, school: null, session: null as AppSession | null };
   }
 
-  if (!session?.user) {
-    return { user: null, role: null, school: null, session: null as Session | null };
+  if (!firebaseUser) {
+    return { user: null, role: null, school: null, session: null as AppSession | null };
   }
 
-  return resolveAuthFromSession(session);
+  return resolveAuthFromUser(firebaseUser);
 };
 
 export const logoutUser = async () => {
   const bootstrapAdmin = getBootstrapAdmin();
-  if (bootstrapAdmin || !supabase) {
+  if (bootstrapAdmin || !firebaseAuth) {
     return;
   }
-  const client = supabase;
 
-  await runExclusiveAuth(() => client.auth.signOut());
+  lastResolvedAuthState = null;
+  await signOut(firebaseAuth);
+  authStore.getState().logout();
 };

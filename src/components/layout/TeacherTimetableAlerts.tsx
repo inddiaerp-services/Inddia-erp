@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ROLES } from "../../config/roles";
 import { normalizeStaffWorkspace, STAFF_WORKSPACES } from "../../config/staffWorkspaces";
 import { authStore } from "../../store/authStore";
-import { getStaffByUserId, listTimetableSlots } from "../../services/adminService";
+import { getStaffByUserId, isFirebaseOnlyMode, listTimetableSlots } from "../../services/adminService";
 import { INDIA_TIME_ZONE, getIndiaTodayIso } from "../../utils/date";
 import {
   DEFAULT_TEACHER_TIMETABLE_ALERT_SETTINGS,
@@ -151,7 +151,7 @@ const TeacherTimetableAlerts = () => {
     let active = true;
 
     const resolveTeacher = async () => {
-      if (role !== ROLES.STAFF || !user?.id || !school?.id) {
+      if (isFirebaseOnlyMode || role !== ROLES.STAFF || !user?.id || !school?.id) {
         setIsTeacherSession(false);
         setTeacherStaffId(null);
         return;
