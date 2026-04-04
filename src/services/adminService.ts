@@ -642,17 +642,24 @@ const mapFirebaseSchoolGeoRow = (data: Record<string, unknown>): SchoolGeoRow =>
 const isFirebaseSystemMetaDoc = (data: Record<string, unknown>) =>
   Boolean(data.systemMeta) || String(data.kind ?? "").toLowerCase() === "system_meta";
 
+const isFirebaseQuotaError = (error: unknown) => {
+  const message = String((error as { message?: string } | null)?.message ?? error ?? "").toLowerCase();
+  const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
+  return (
+    message.includes("resource_exhausted") ||
+    message.includes("quota exceeded") ||
+    message.includes("quota-exceeded") ||
+    code.includes("resource-exhausted")
+  );
+};
+
 const isFirebasePermissionError = (error: unknown) => {
   const message = String((error as { message?: string } | null)?.message ?? error ?? "").toLowerCase();
   const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
   return (
     message.includes("missing or insufficient permissions") ||
-    message.includes("resource_exhausted") ||
-    message.includes("quota exceeded") ||
-    message.includes("quota-exceeded") ||
     message.includes("permission-denied") ||
-    code.includes("permission-denied") ||
-    code.includes("resource-exhausted")
+    code.includes("permission-denied")
   );
 };
 
@@ -720,6 +727,9 @@ const getFirestoreSchoolScopedDocs = async (collectionName: string, schoolId: st
       .map((item) => ({ id: item.id, data: item.data() as Record<string, unknown> }))
       .filter((item) => !isFirebaseSystemMetaDoc(item.data));
   } catch (error) {
+    if (isFirebaseQuotaError(error)) {
+      throw error;
+    }
     if (!isFirebasePermissionError(error)) {
       throw error;
     }
@@ -736,6 +746,9 @@ const getFirestoreSchoolScopedCount = async (collectionName: string, schoolId: s
     const snapshot = await getCountFromServer(q);
     return snapshot.data().count;
   } catch (error) {
+    if (isFirebaseQuotaError(error)) {
+      throw error;
+    }
     if (!isFirebasePermissionError(error)) {
       throw error;
     }
@@ -753,6 +766,9 @@ const getFirestoreDocument = async (collectionName: string, id: string) => {
     if (!snapshot.exists()) return null;
     return { id: snapshot.id, data: snapshot.data() as Record<string, unknown> };
   } catch (error) {
+    if (isFirebaseQuotaError(error)) {
+      throw error;
+    }
     if (!isFirebasePermissionError(error)) {
       throw error;
     }
@@ -1424,6 +1440,9 @@ const syncClassCoordinator = async (
       try {
         await firebaseUpdateDoc(firebaseDoc(db, "staff", staffId), payload);
       } catch (error) {
+        if (isFirebaseQuotaError(error)) {
+          throw error;
+        }
         if (!isFirebasePermissionError(error)) {
           throw error;
         }
@@ -1814,6 +1833,9 @@ export const createHoliday = async (values: HolidayFormValues) =>
       try {
         await firebaseSetDoc(firebaseDoc(firebaseDb, "holidays", holidayId), holidayPayload);
       } catch (error) {
+        if (isFirebaseQuotaError(error)) {
+          throw error;
+        }
         if (!isFirebasePermissionError(error)) {
           throw error;
         }
@@ -1877,6 +1899,9 @@ export const updateHoliday = async (holidayId: string, values: HolidayFormValues
       try {
         await firebaseUpdateDoc(firebaseDoc(firebaseDb, "holidays", holidayId), holidayPayload);
       } catch (error) {
+        if (isFirebaseQuotaError(error)) {
+          throw error;
+        }
         if (!isFirebasePermissionError(error)) {
           throw error;
         }
@@ -1932,6 +1957,9 @@ export const deleteHoliday = async (holidayId: string) =>
       try {
         await firebaseDeleteDoc(firebaseDoc(firebaseDb, "holidays", holidayId));
       } catch (error) {
+        if (isFirebaseQuotaError(error)) {
+          throw error;
+        }
         if (!isFirebasePermissionError(error)) {
           throw error;
         }
@@ -2032,6 +2060,9 @@ export const createSubject = async (values: SubjectFormValues) =>
       try {
         await firebaseSetDoc(firebaseDoc(firebaseDb, "subjects", subjectId), subjectPayload);
       } catch (error) {
+        if (isFirebaseQuotaError(error)) {
+          throw error;
+        }
         if (!isFirebasePermissionError(error)) {
           throw error;
         }
@@ -2085,6 +2116,9 @@ export const updateSubject = async (subjectId: string, values: SubjectFormValues
       try {
         await firebaseUpdateDoc(firebaseDoc(firebaseDb, "subjects", subjectId), { name });
       } catch (error) {
+        if (isFirebaseQuotaError(error)) {
+          throw error;
+        }
         if (!isFirebasePermissionError(error)) {
           throw error;
         }
@@ -2130,6 +2164,9 @@ export const deleteSubject = async (subjectId: string) =>
       try {
         await firebaseDeleteDoc(firebaseDoc(firebaseDb, "subjects", subjectId));
       } catch (error) {
+        if (isFirebaseQuotaError(error)) {
+          throw error;
+        }
         if (!isFirebasePermissionError(error)) {
           throw error;
         }
@@ -5540,6 +5577,9 @@ export const markNotificationAsRead = async (notificationId: string) => {
         is_read: true,
       });
     } catch (error) {
+      if (isFirebaseQuotaError(error)) {
+        throw error;
+      }
       if (!isFirebasePermissionError(error)) {
         throw error;
       }
@@ -6158,6 +6198,9 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
       studentDocs = studentsSnapshot.docs;
       staffDocs = staffSnapshot.docs;
     } catch (error) {
+      if (isFirebaseQuotaError(error)) {
+        throw error;
+      }
       if (!isFirebasePermissionError(error)) {
         throw error;
       }
