@@ -1115,7 +1115,7 @@ export const getAttendanceGeoSettings = async (): Promise<AttendanceGeoSettings>
   }
 
   if (firebaseDb) {
-    const snapshot = await getFirestoreDoc("schools", schoolId);
+    const snapshot = await getFirestoreDocument("schools", schoolId);
     const row = snapshot ? mapFirebaseSchoolGeoRow(snapshot.data) : null;
     const latitude = row?.attendance_geo_latitude ?? null;
     const longitude = row?.attendance_geo_longitude ?? null;
@@ -1222,7 +1222,7 @@ if (subjectIds.length === 0) return new Map<string, SubjectRow>();
 const getParentsMap = async (parentIds: string[]) => {
   if (parentIds.length === 0) return new Map<string, ParentRow>();
   if (firebaseDb) {
-    const rows = await Promise.all(parentIds.map((id) => getFirestoreDoc("parents", id)));
+    const rows = await Promise.all(parentIds.map((id) => getFirestoreDocument("parents", id)));
     return new Map<string, ParentRow>(
       rows
         .filter((item): item is { id: string; data: Record<string, unknown> } => Boolean(item))
