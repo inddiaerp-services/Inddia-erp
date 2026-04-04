@@ -437,7 +437,7 @@ export type DashboardOverview = {
 
 export const isFirebaseOnlyMode = Boolean(firebaseDb && !databaseClient);
 
-const createNoopDatabaseClient = () => {
+const createNoopDatabaseClient = (): any => {
   const createQueryBuilder = (singleResult = false, writeResult = false): any =>
     new Proxy(
       {},
@@ -468,12 +468,18 @@ const createNoopDatabaseClient = () => {
 
   return {
     from: () => createQueryBuilder(),
+    rpc: () =>
+      Promise.resolve({
+        data: [],
+        error: null,
+        count: 0,
+      }),
   };
 };
 
 const fallbackDatabaseClient = createNoopDatabaseClient();
 
-const requireDatabaseClient = () => {
+const requireDatabaseClient = (): any => {
   if (!databaseClient) {
     if (isFirebaseOnlyMode) {
       return fallbackDatabaseClient;
@@ -4256,7 +4262,7 @@ export const loadExamMarksSession = async (
   }
 
   const resultMap = new Map(resultRows.map((row) => [row.student_id, row]));
-  const rows: ExamMarksRow[] = (studentRows ?? []).map((student) => {
+  const rows: ExamMarksRow[] = (studentRows ?? []).map((student: { id: string; name: string | null }) => {
     const existing = resultMap.get(student.id);
     const marks = existing?.marks_obtained != null ? String(existing.marks_obtained) : "";
     return {
@@ -6029,14 +6035,14 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
   if (employeeActivityResult.error) throw new Error(employeeActivityResult.error.message);
 
   const classSet = new Set<string>();
-  (studentsClassRowsResult.data ?? []).forEach((row) => {
+  (studentsClassRowsResult.data ?? []).forEach((row: { class: string | null; section: string | null }) => {
     if (row.class && row.section) classSet.add(`${row.class}__${row.section}`);
   });
-  (timetableClassRowsResult.data ?? []).forEach((row) => {
+  (timetableClassRowsResult.data ?? []).forEach((row: { class: string | null; section: string | null }) => {
     if (row.class && row.section) classSet.add(`${row.class}__${row.section}`);
   });
 
-  const feesCollected = (feeRowsResult.data ?? []).reduce((sum, row) => {
+  const feesCollected = (feeRowsResult.data ?? []).reduce((sum: number, row: FeeRow) => {
     return sum + Number(row.paid_amount ?? (String(row.status ?? "").toLowerCase() === "paid" ? row.total_amount ?? 0 : 0));
   }, 0);
 
@@ -6068,13 +6074,13 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
   ];
 
   const activityRows = [
-    ...(studentActivityResult.data ?? []).map((row) => ({
+    ...((studentActivityResult.data ?? []) as Array<{ name: string | null; created_at: string | null }>).map((row) => ({
       module: "Students",
       owner: row.name ?? "Student",
       status: "Added",
       timestamp: row.created_at,
     })),
-    ...(applicantActivityResult.data ?? []).map((row) => ({
+    ...((applicantActivityResult.data ?? []) as ApplicantRow[]).map((row) => ({
       module: "Admissions",
       owner: row.name ?? "Applicant",
       status: row.status ?? "Pending",
@@ -6086,7 +6092,7 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
       status: "Scheduled",
       timestamp: row.created_at ?? row.date,
     })),
-    ...(employeeActivityResult.data ?? []).map((row) => ({
+    ...((employeeActivityResult.data ?? []) as Array<{ name: string | null; role: string | null; created_at: string | null }>).map((row) => ({
       module: "HR",
       owner: row.name ?? "Employee",
       status: row.role ?? "Updated",
@@ -6102,7 +6108,7 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
       return right - left;
     })
     .slice(0, 6)
-    .map((item) => ({
+    .map((item: DashboardActivity & { timestamp?: string | null }) => ({
       module: item.module,
       owner: item.owner,
       status: item.status,
@@ -6486,28 +6492,28 @@ export const listTimetableClassOptions = async (): Promise<TimetableClassOption[
 
   const classMap = new Map<string, Set<string>>();
 
-  (classResult.data ?? []).forEach((item) => {
+  (classResult.data ?? []).forEach((item: { class_name: string | null; section: string | null }) => {
     const className = item.class_name?.trim();
     const section = item.section?.trim();
     if (!className || !section) return;
     classMap.set(className, (classMap.get(className) ?? new Set()).add(section));
   });
 
-  (studentResult.data ?? []).forEach((item) => {
+  (studentResult.data ?? []).forEach((item: { class: string | null; section: string | null }) => {
     const className = item.class?.trim();
     const section = item.section?.trim();
     if (!className || !section) return;
     classMap.set(className, (classMap.get(className) ?? new Set()).add(section));
   });
 
-  (staffResult.data ?? []).forEach((item) => {
+  (staffResult.data ?? []).forEach((item: { assigned_class: string | null; assigned_section: string | null }) => {
     const className = item.assigned_class?.trim();
     const section = item.assigned_section?.trim();
     if (!className || !section) return;
     classMap.set(className, (classMap.get(className) ?? new Set()).add(section));
   });
 
-  (timetableResult.data ?? []).forEach((item) => {
+  (timetableResult.data ?? []).forEach((item: { class: string | null; section: string | null }) => {
     const className = item.class?.trim();
     const section = item.section?.trim();
     if (!className || !section) return;
