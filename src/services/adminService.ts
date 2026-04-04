@@ -1168,7 +1168,7 @@ const mapSubject = (subject: SubjectRow): SubjectRecord => ({
 const getUsersMap = async (userIds: string[]) => {
   if (userIds.length === 0) return new Map<string, UsersRow>();
   if (firebaseDb) {
-    const rows = await Promise.all(userIds.map((id) => getFirestoreDoc("users", id)));
+    const rows = await Promise.all(userIds.map((id) => getFirestoreDocument("users", id)));
     return new Map<string, UsersRow>(
       rows
         .filter((item): item is { id: string; data: Record<string, unknown> } => Boolean(item))
@@ -1196,11 +1196,11 @@ const getUsersMap = async (userIds: string[]) => {
 };
 
 const getSubjectsMap = async (subjectIds: string[]) => {
-  if (subjectIds.length === 0) return new Map<string, SubjectRow>();
+if (subjectIds.length === 0) return new Map<string, SubjectRow>();
   if (firebaseDb) {
-    const rows = await Promise.all(subjectIds.map((id) => getFirestoreDoc("subjects", id)));
+    const rows = await Promise.all(subjectIds.map((id) => getFirestoreDocument("subjects", id)));
     return new Map(
-      rows as any
+      rows
         .filter((item): item is { id: string; data: Record<string, unknown> } => Boolean(item))
         .map((item) => [item.id, mapFirebaseSubjectRow(item.id, item.data)]),
     );
