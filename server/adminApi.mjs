@@ -105,6 +105,63 @@ const toImportBoolean = (value) => {
   return ["true", "yes", "y", "1"].includes(normalized);
 };
 
+const normalizeImportKey = (value) =>
+  String(value ?? "")
+    .replace(/^\ufeff/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
+const normalizeImportRow = (rawRow) => {
+  if (!rawRow || typeof rawRow !== "object" || Array.isArray(rawRow)) {
+    return {};
+  }
+
+  const normalizedRow = {};
+
+  for (const [rawKey, rawValue] of Object.entries(rawRow)) {
+    const normalizedKey = normalizeImportKey(rawKey);
+    if (!normalizedKey) continue;
+
+    const existingValue = normalizedRow[normalizedKey];
+    if (!toImportText(existingValue) && toImportText(rawValue)) {
+      normalizedRow[normalizedKey] = rawValue;
+      continue;
+    }
+
+    if (!(normalizedKey in normalizedRow)) {
+      normalizedRow[normalizedKey] = rawValue;
+    }
+  }
+
+  return normalizedRow;
+};
+
+const getImportValue = (normalizedRow, aliases) => {
+  for (const alias of aliases) {
+    const value = normalizedRow[normalizeImportKey(alias)];
+    if (toImportText(value)) {
+      return value;
+    }
+  }
+
+  return "";
+};
+
+const isImportRowEmpty = (normalizedRow) =>
+  Object.values(normalizedRow).every((value) => !toImportText(value));
+
+const runImportInBatches = async (rows, batchSize, mapper) => {
+  const results = [];
+
+  for (const batch of chunkValues(rows, batchSize)) {
+    const batchResults = await Promise.all(batch.map(mapper));
+    results.push(...batchResults);
+  }
+
+  return results;
+};
+
 const isAuditLogUserForeignKeyError = (message) => {
   const normalized = String(message ?? "").toLowerCase();
   return (
@@ -1397,9 +1454,14 @@ const saveStaffAttendance = async (payload, authHeader) => {
   const tenantSchoolId = await ensureTenantSchoolExists({ user, profile });
   const date = String(payload.date ?? "").trim();
   const entries = Array.isArray(payload.entries) ? payload.entries : [];
+  const today = getCurrentDateInTimeZone("Asia/Kolkata");
 
   if (!date) {
     throw new Error("Attendance date is required.");
+  }
+
+  if (date !== today) {
+    throw new Error(`HR can mark staff attendance only for today (${today}).`);
   }
 
   if (entries.length === 0) {
@@ -1688,6 +1750,9 @@ const normalizeStaffImportRole = (value) => {
   throw new Error(`Unsupported staff role "${toImportText(value)}".`);
 };
 
+const STAFF_IMPORT_BATCH_SIZE = 5;
+const STUDENT_IMPORT_BATCH_SIZE = 3;
+
 const bulkImportStaff = async (payload, authHeader) => {
   const { profile } = await getUserProfile(authHeader);
   const tenantSchoolId = String(profile.school_id ?? "").trim();
@@ -1714,20 +1779,23 @@ const bulkImportStaff = async (payload, authHeader) => {
     (subjectRows ?? []).map((row) => [String(row.name ?? "").trim().toLowerCase(), row.id]),
   );
 
-  const results = [];
-  let created = 0;
-  let failed = 0;
+  const normalizedRows = rows
+    .map((rawRow, index) => ({ index, row: normalizeImportRow(rawRow) }))
+    .filter(({ row }) => !isImportRowEmpty(row));
 
-  for (const [index, rawRow] of rows.entries()) {
-    const row = rawRow && typeof rawRow === "object" ? rawRow : {};
-    const name = toImportText(row.name);
-    const email = toImportText(row.email).toLowerCase();
+  if (normalizedRows.length === 0) {
+    throw new Error("The selected file only contains empty rows.");
+  }
+
+  const results = await runImportInBatches(normalizedRows, STAFF_IMPORT_BATCH_SIZE, async ({ index, row }) => {
+    const name = toImportText(getImportValue(row, ["name", "staffName", "staff name", "fullName", "full name"]));
+    const email = toImportText(getImportValue(row, ["email", "emailAddress", "email address", "mail"])).toLowerCase();
     const identifier = email || name || `Row ${index + 2}`;
 
     try {
-      const role = normalizeStaffImportRole(row.role);
-      const subjectName = toImportText(row.subjectName || row.subject);
-      const subjectIdFromSheet = toImportText(row.subjectId);
+      const role = normalizeStaffImportRole(getImportValue(row, ["role", "staffRole", "staff role", "designation"]));
+      const subjectName = toImportText(getImportValue(row, ["subjectName", "subject name", "subject"]));
+      const subjectIdFromSheet = toImportText(getImportValue(row, ["subjectId", "subject id"]));
       const resolvedSubjectId = subjectIdFromSheet || (subjectName ? subjectMap.get(subjectName.toLowerCase()) ?? "" : "");
 
       if (subjectName && !resolvedSubjectId) {
@@ -1738,12 +1806,14 @@ const bulkImportStaff = async (payload, authHeader) => {
         {
           name,
           email,
-          mobileNumber: toImportText(row.mobileNumber || row.phone),
-          photoUrl: toImportText(row.photoUrl),
-          password: toImportText(row.password),
+          mobileNumber: toImportText(
+            getImportValue(row, ["mobileNumber", "mobile number", "phone", "phoneNumber", "phone number"]),
+          ),
+          photoUrl: toImportText(getImportValue(row, ["photoUrl", "photo url", "image", "imageUrl", "image url"])),
+          password: toImportText(getImportValue(row, ["password", "staffPassword", "staff password"])),
           role,
-          dateOfJoining: toImportText(row.dateOfJoining),
-          monthlySalary: toImportText(row.monthlySalary),
+          dateOfJoining: toImportText(getImportValue(row, ["dateOfJoining", "date of joining", "joiningDate", "joining date"])),
+          monthlySalary: toImportText(getImportValue(row, ["monthlySalary", "monthly salary", "salary"])),
           subjectId: role === "Teacher" ? resolvedSubjectId : "",
           assignedClass: "",
           assignedSection: "",
@@ -1752,24 +1822,24 @@ const bulkImportStaff = async (payload, authHeader) => {
         authHeader,
       );
 
-      created += 1;
-      results.push({
+      return {
         rowNumber: index + 2,
         identifier,
         success: true,
         message: `Created staff account for ${createdStaff.name}.`,
-      });
+      };
     } catch (error) {
-      failed += 1;
-      results.push({
+      return {
         rowNumber: index + 2,
         identifier,
         success: false,
         message: error instanceof Error ? error.message : "Staff import failed.",
-      });
+      };
     }
-  }
+  });
 
+  const created = results.filter((item) => item.success).length;
+  const failed = results.length - created;
   return { created, failed, results };
 };
 
@@ -2250,78 +2320,93 @@ const bulkImportStudents = async (payload, authHeader) => {
     throw new Error("Add at least one student row to import.");
   }
 
-  const results = [];
-  let created = 0;
-  let failed = 0;
+  const normalizedRows = rows
+    .map((rawRow, index) => ({ index, row: normalizeImportRow(rawRow) }))
+    .filter(({ row }) => !isImportRowEmpty(row));
 
-  for (const [index, rawRow] of rows.entries()) {
-    const row = rawRow && typeof rawRow === "object" ? rawRow : {};
-    const studentName = toImportText(row.studentName || row.name);
-    const studentCode = toImportText(row.schoolId || row.studentCode);
+  if (normalizedRows.length === 0) {
+    throw new Error("The selected file only contains empty rows.");
+  }
+
+  const results = await runImportInBatches(normalizedRows, STUDENT_IMPORT_BATCH_SIZE, async ({ index, row }) => {
+    const studentName = toImportText(getImportValue(row, ["studentName", "student name", "name", "fullName", "full name"]));
+    const studentCode = toImportText(
+      getImportValue(row, ["schoolId", "school id", "studentCode", "student code", "admissionNo", "admission no", "admissionNumber", "admission number"]),
+    );
     const identifier = studentCode || studentName || `Row ${index + 2}`;
 
     try {
       const student = await createStudentBundle(
         {
           studentName,
-          photoUrl: toImportText(row.photoUrl),
+          photoUrl: toImportText(getImportValue(row, ["photoUrl", "photo url", "image", "imageUrl", "image url"])),
           schoolId: studentCode,
-          className: toImportText(row.className || row.class),
-          section: toImportText(row.section),
-          admissionDate: toImportText(row.admissionDate),
-          discountFee: toImportText(row.discountFee),
-          studentAadharNumber: toImportText(row.studentAadharNumber),
-          studentPassword: toImportText(row.studentPassword),
-          dateOfBirth: toImportText(row.dateOfBirth),
-          birthId: toImportText(row.birthId),
-          isOrphan: toImportBoolean(row.isOrphan),
-          gender: toImportText(row.gender),
-          caste: toImportText(row.caste),
-          osc: toImportText(row.osc),
-          identificationMark: toImportText(row.identificationMark),
-          previousSchool: toImportText(row.previousSchool),
-          region: toImportText(row.region),
-          bloodGroup: toImportText(row.bloodGroup),
-          previousBoardRollNo: toImportText(row.previousBoardRollNo),
-          address: toImportText(row.address),
-          fatherName: toImportText(row.fatherName),
-          fatherAadharNumber: toImportText(row.fatherAadharNumber),
-          fatherOccupation: toImportText(row.fatherOccupation),
-          fatherEducation: toImportText(row.fatherEducation),
-          fatherMobileNumber: toImportText(row.fatherMobileNumber),
-          fatherProfession: toImportText(row.fatherProfession),
-          fatherIncome: toImportText(row.fatherIncome),
-          fatherEmail: toImportText(row.fatherEmail).toLowerCase(),
-          fatherPassword: toImportText(row.fatherPassword),
-          motherName: toImportText(row.motherName),
-          motherAadharNumber: toImportText(row.motherAadharNumber),
-          motherOccupation: toImportText(row.motherOccupation),
-          motherEducation: toImportText(row.motherEducation),
-          motherMobileNumber: toImportText(row.motherMobileNumber),
-          motherProfession: toImportText(row.motherProfession),
-          motherIncome: toImportText(row.motherIncome),
+          className: toImportText(getImportValue(row, ["className", "class name", "class"])),
+          section: toImportText(getImportValue(row, ["section"])),
+          admissionDate: toImportText(getImportValue(row, ["admissionDate", "admission date"])),
+          discountFee: toImportText(getImportValue(row, ["discountFee", "discount fee"])),
+          studentAadharNumber: toImportText(
+            getImportValue(row, ["studentAadharNumber", "student aadhar number", "studentAadhaarNumber", "student aadhaar number", "aadharNumber", "aadhaarNumber"]),
+          ),
+          studentPassword: toImportText(getImportValue(row, ["studentPassword", "student password", "password"])),
+          dateOfBirth: toImportText(getImportValue(row, ["dateOfBirth", "date of birth", "dob"])),
+          birthId: toImportText(getImportValue(row, ["birthId", "birth id"])),
+          isOrphan: toImportBoolean(getImportValue(row, ["isOrphan", "is orphan", "orphan"])),
+          gender: toImportText(getImportValue(row, ["gender"])),
+          caste: toImportText(getImportValue(row, ["caste"])),
+          osc: toImportText(getImportValue(row, ["osc"])),
+          identificationMark: toImportText(getImportValue(row, ["identificationMark", "identification mark"])),
+          previousSchool: toImportText(getImportValue(row, ["previousSchool", "previous school"])),
+          region: toImportText(getImportValue(row, ["region"])),
+          bloodGroup: toImportText(getImportValue(row, ["bloodGroup", "blood group"])),
+          previousBoardRollNo: toImportText(getImportValue(row, ["previousBoardRollNo", "previous board roll no"])),
+          address: toImportText(getImportValue(row, ["address"])),
+          fatherName: toImportText(getImportValue(row, ["fatherName", "father name", "parentName", "parent name"])),
+          fatherAadharNumber: toImportText(
+            getImportValue(row, ["fatherAadharNumber", "father aadhar number", "fatherAadhaarNumber", "father aadhaar number"]),
+          ),
+          fatherOccupation: toImportText(getImportValue(row, ["fatherOccupation", "father occupation"])),
+          fatherEducation: toImportText(getImportValue(row, ["fatherEducation", "father education"])),
+          fatherMobileNumber: toImportText(
+            getImportValue(row, ["fatherMobileNumber", "father mobile number", "parentPhone", "parent phone", "fatherPhone", "father phone"]),
+          ),
+          fatherProfession: toImportText(getImportValue(row, ["fatherProfession", "father profession"])),
+          fatherIncome: toImportText(getImportValue(row, ["fatherIncome", "father income"])),
+          fatherEmail: toImportText(
+            getImportValue(row, ["fatherEmail", "father email", "parentEmail", "parent email"]),
+          ).toLowerCase(),
+          fatherPassword: toImportText(getImportValue(row, ["fatherPassword", "father password", "parentPassword", "parent password"])),
+          motherName: toImportText(getImportValue(row, ["motherName", "mother name"])),
+          motherAadharNumber: toImportText(
+            getImportValue(row, ["motherAadharNumber", "mother aadhar number", "motherAadhaarNumber", "mother aadhaar number"]),
+          ),
+          motherOccupation: toImportText(getImportValue(row, ["motherOccupation", "mother occupation"])),
+          motherEducation: toImportText(getImportValue(row, ["motherEducation", "mother education"])),
+          motherMobileNumber: toImportText(getImportValue(row, ["motherMobileNumber", "mother mobile number", "motherPhone", "mother phone"])),
+          motherProfession: toImportText(getImportValue(row, ["motherProfession", "mother profession"])),
+          motherIncome: toImportText(getImportValue(row, ["motherIncome", "mother income"])),
         },
         authHeader,
       );
 
-      created += 1;
-      results.push({
+      return {
         rowNumber: index + 2,
         identifier,
         success: true,
         message: `Created student account for ${student.name}.`,
-      });
+      };
     } catch (error) {
-      failed += 1;
-      results.push({
+      return {
         rowNumber: index + 2,
         identifier,
         success: false,
         message: error instanceof Error ? error.message : "Student import failed.",
-      });
+      };
     }
-  }
+  });
 
+  const created = results.filter((item) => item.success).length;
+  const failed = results.length - created;
   return { created, failed, results };
 };
 

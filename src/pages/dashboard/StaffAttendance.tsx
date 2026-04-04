@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import AttendanceStatusToggle from "../../components/attendance/AttendanceStatusToggle";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
 import DataTable from "../../components/ui/DataTable";
@@ -10,7 +11,7 @@ import {
   saveStaffAttendance,
   staffAttendanceStatusOptions,
 } from "../../services/adminService";
-import { addDaysToDateString, formatMonthLabel, getIndiaTodayIso } from "../../utils/date";
+import { formatMonthLabel, getIndiaTodayIso } from "../../utils/date";
 import type {
   EmployeeRecord,
   LeaveRecord,
@@ -47,6 +48,7 @@ const getStatusBadgeClassName = (status: StaffAttendanceStatus) => {
 
 const StaffAttendancePage = () => {
   const today = getIndiaTodayIso();
+  const selectedDate = today;
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [records, setRecords] = useState<StaffAttendanceRecord[]>([]);
@@ -57,14 +59,7 @@ const StaffAttendancePage = () => {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StaffAttendanceStatus | "">("");
-  const [selectedDate, setSelectedDate] = useState(getIndiaTodayIso());
   const [selectedMonth, setSelectedMonth] = useState(getIndiaTodayIso().slice(0, 7));
-
-  useEffect(() => {
-    if (selectedDate.slice(0, 7) !== selectedMonth) {
-      setSelectedMonth(selectedDate.slice(0, 7));
-    }
-  }, [selectedDate, selectedMonth]);
 
   useEffect(() => {
     let active = true;
@@ -165,7 +160,7 @@ const StaffAttendancePage = () => {
 
       nextDrafts[employee.id] = {
         staffId: employee.id,
-        status: existing?.status ?? (isOnApprovedLeave ? "On Leave" : "Present"),
+        status: existing?.status === "Absent" || isOnApprovedLeave ? "Absent" : "Present",
         checkInTime: existing?.checkInTime ?? "",
         checkOutTime: existing?.checkOutTime ?? "",
         notes: existing?.notes ?? "",
@@ -259,15 +254,11 @@ const StaffAttendancePage = () => {
 
   const canSaveAttendance = !saving && activeEmployees.length > 0;
 
-  const handleShiftSelectedDate = (days: number) => {
-    setSelectedDate((current) => addDaysToDateString(current, days));
-  };
-
   return (
     <div className="space-y-6">
       <AdminPageHeader
         title="Staff Attendance"
-        description="Mark HR-side attendance with date-wise saving, month-wise history, and role-wise filters."
+        description="Mark HR-side attendance for today only, with month-wise history and role-wise filters."
         action={
           <Button onClick={() => void handleSave()} disabled={!canSaveAttendance} fullWidth>
             {saving ? "Saving..." : "Save Attendance"}
@@ -291,15 +282,11 @@ const StaffAttendancePage = () => {
 
       <Card className="border-slate-200 bg-white shadow-sm">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-slate-700">Attendance Date</span>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(event) => setSelectedDate(event.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-200"
-            />
-          </label>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-sm font-medium text-slate-700">Attendance Date</p>
+            <p className="mt-2 text-sm font-semibold text-slate-900">{selectedDate}</p>
+            <p className="mt-1 text-xs text-slate-500">Only today can be marked by HR.</p>
+          </div>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">History Month</span>
             <input
@@ -352,60 +339,33 @@ const StaffAttendancePage = () => {
         </div>
       </Card>
 
-      <Card className="border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Attendance controls</p>
-            <p className="mt-1 text-sm text-slate-500">
-              Change the date and save attendance for that selected day, not only for today.
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-            <Button type="button" variant="outline" onClick={() => handleShiftSelectedDate(-1)}>
-              Previous Day
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setSelectedDate(today)}>
-              Today
-            </Button>
-            <Button type="button" variant="outline" onClick={() => handleShiftSelectedDate(1)}>
-              Next Day
-            </Button>
-            <Button onClick={() => void handleSave()} disabled={!canSaveAttendance}>
-              {saving ? "Saving..." : `Save ${selectedDate}`}
-            </Button>
-          </div>
-        </div>
-      </Card>
-
       <Card className="border-slate-200 bg-white p-0 shadow-sm">
         <div className="border-b border-slate-200 px-6 py-5">
           <h2 className="text-xl font-semibold text-slate-900">Daily Attendance Roster</h2>
           <p className="mt-2 text-sm text-slate-500">
-            Mark attendance for {selectedDate}. Approved leave is prefilled as On Leave, and you can update any saved date from this roster.
+            Mark attendance for {selectedDate}. Approved leave is prefilled as absent so HR can finish today&apos;s roster quickly.
           </p>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[980px] text-left text-sm">
+          <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
               <tr>
                 <th className="px-6 py-4 font-medium">Staff</th>
                 <th className="px-6 py-4 font-medium">Status</th>
-                <th className="px-6 py-4 font-medium">Check In</th>
-                <th className="px-6 py-4 font-medium">Check Out</th>
                 <th className="px-6 py-4 font-medium">Notes</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-slate-500">
+                  <td colSpan={3} className="px-6 py-8 text-slate-500">
                     Loading staff roster...
                   </td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-slate-500">
+                  <td colSpan={3} className="px-6 py-8 text-slate-500">
                     No staff matched the current filters.
                   </td>
                 </tr>
@@ -426,34 +386,9 @@ const StaffAttendancePage = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 align-top">
-                        <select
-                          value={draft?.status ?? "Present"}
-                          onChange={(event) =>
-                            handleDraftChange(employee.id, "status", event.target.value as StaffAttendanceStatus)
-                          }
-                          className="w-full min-w-[150px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-200"
-                        >
-                          {staffAttendanceStatusOptions.map((status) => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-6 py-4 align-top">
-                        <input
-                          type="time"
-                          value={draft?.checkInTime ?? ""}
-                          onChange={(event) => handleDraftChange(employee.id, "checkInTime", event.target.value)}
-                          className="w-full min-w-[140px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-200"
-                        />
-                      </td>
-                      <td className="px-6 py-4 align-top">
-                        <input
-                          type="time"
-                          value={draft?.checkOutTime ?? ""}
-                          onChange={(event) => handleDraftChange(employee.id, "checkOutTime", event.target.value)}
-                          className="w-full min-w-[140px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-200"
+                        <AttendanceStatusToggle
+                          value={draft?.status === "Absent" ? "Absent" : "Present"}
+                          onChange={(value) => handleDraftChange(employee.id, "status", value)}
                         />
                       </td>
                       <td className="px-6 py-4 align-top">
@@ -472,16 +407,13 @@ const StaffAttendancePage = () => {
             </tbody>
           </table>
         </div>
-      </Card>
 
-      <div className="flex flex-wrap justify-end gap-3">
-        <Button type="button" variant="outline" onClick={() => setSelectedDate(today)}>
-          Reset To Today
-        </Button>
-        <Button onClick={() => void handleSave()} disabled={!canSaveAttendance}>
-          {saving ? "Saving..." : `Save Attendance For ${selectedDate}`}
-        </Button>
-      </div>
+        <div className="flex justify-end border-t border-slate-200 px-6 py-4">
+          <Button onClick={() => void handleSave()} disabled={!canSaveAttendance}>
+            {saving ? "Saving..." : "Save Attendance"}
+          </Button>
+        </div>
+      </Card>
 
       <DataTable
         title="Attendance History"
