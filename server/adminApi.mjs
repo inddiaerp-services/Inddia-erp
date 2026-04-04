@@ -886,6 +886,104 @@ const findFirestoreStaffDocByUserId = async (userId) => {
   );
 };
 
+const upsertFirebaseStaffAccount = async ({
+  existingUserId = null,
+  tenantSchoolId,
+  name,
+  email,
+  mobileNumber,
+  photoUrl,
+  password,
+  role,
+  dateOfJoining,
+  monthlySalary,
+  subjectId,
+  assignedClass,
+  assignedSection,
+  isClassCoordinator,
+}) => {
+  let authUser = null;
+  let createdAuthUser = false;
+
+  if (existingUserId) {
+    await updateManagedAuthUser(existingUserId, {
+      email,
+      password,
+      name,
+      role: "staff",
+      schoolId: tenantSchoolId,
+    });
+    authUser = { user: { id: existingUserId, email } };
+  } else {
+    authUser = await createManagedAuthUser({
+      email,
+      password,
+      name,
+      role: "staff",
+      schoolId: tenantSchoolId,
+    });
+    createdAuthUser = true;
+  }
+
+  try {
+    await updatePublicUserProfile(authUser.user.id, {
+      name,
+      email,
+      phone: mobileNumber,
+      role: "staff",
+      school_id: tenantSchoolId,
+      photo_url: photoUrl,
+    });
+
+    const existingStaffDoc = await findFirestoreStaffDocByUserId(authUser.user.id);
+    const staffRef = existingStaffDoc ?? firebaseAdminDb.collection("staff").doc();
+    const createdAt =
+      getFirestoreString(existingStaffDoc?.data() ?? {}, ["createdAt", "created_at"]) ?? new Date().toISOString();
+
+    await staffRef.set(
+      {
+        userId: authUser.user.id,
+        schoolId: tenantSchoolId,
+        name,
+        role,
+        mobileNumber,
+        dateOfJoining,
+        monthlySalary,
+        subjectId,
+        isClassCoordinator,
+        assignedClass,
+        assignedSection,
+        createdAt,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+
+    return {
+      id: staffRef.id,
+      userId: authUser.user.id,
+      name,
+      email,
+      mobileNumber,
+      photoUrl,
+      role,
+      dateOfJoining,
+      monthlySalary,
+      subjectId,
+      assignedClass,
+      assignedSection,
+      isClassCoordinator,
+    };
+  } catch (error) {
+    if (createdAuthUser) {
+      await cleanupTable("staff", "userId", authUser.user.id);
+      await cleanupTable("users", "id", authUser.user.id);
+      await cleanupUser(authUser.user.id);
+    }
+    throw error;
+  }
+};
+
 const upsertFirestoreUser = async (payload) => {
   if (!firebaseAdminDb) return payload;
 
@@ -2719,6 +2817,7 @@ const createStaff = async (payload, authHeader) => {
   const assignedClass = null;
   const assignedSection = null;
   const isClassCoordinator = false;
+  const overwriteExisting = Boolean(payload.overwriteExisting);
 
   if (!name || !email || !mobileNumber || !password || !dateOfJoining || !monthlySalaryValue) {
     throw new Error("Name, mobile number, date of joining, monthly salary, email, and password are required.");
@@ -2734,21 +2833,25 @@ const createStaff = async (payload, authHeader) => {
   }
 
   if (firebaseAdminDb) {
-    let authUser;
-    let createdAuthUser = false;
-
     try {
-      authUser = await createManagedAuthUser({
-        email,
-        password,
+      return await upsertFirebaseStaffAccount({
+        tenantSchoolId,
         name,
-        role: "staff",
-        schoolId: tenantSchoolId,
+        email,
+        mobileNumber,
+        photoUrl,
+        password,
+        role,
+        dateOfJoining,
+        monthlySalary,
+        subjectId,
+        assignedClass,
+        assignedSection,
+        isClassCoordinator,
       });
-      createdAuthUser = true;
     } catch (error) {
       const duplicateEmailMessage = getDuplicateEmailMessage(email);
-      if (!(error instanceof Error) || error.message !== duplicateEmailMessage || !firebaseAdminAuth) {
+      if (!(error instanceof Error) || error.message !== duplicateEmailMessage || !firebaseAdminAuth || !overwriteExisting) {
         throw error;
       }
 
@@ -2763,56 +2866,14 @@ const createStaff = async (payload, authHeader) => {
         throw error;
       }
 
-      await updateManagedAuthUser(existingAuthUser.uid, {
-        email,
-        password,
-        name,
-        role: "staff",
-        schoolId: tenantSchoolId,
-      });
-
-      authUser = {
-        user: {
-          id: existingAuthUser.uid,
-          email: existingAuthUser.email ?? email,
-        },
-      };
-    }
-
-    try {
-      await updatePublicUserProfile(authUser.user.id, {
-        name,
-        email,
-        phone: mobileNumber,
-        role: "staff",
-        school_id: tenantSchoolId,
-        photo_url: photoUrl,
-      });
-
-      const existingStaffDoc = await findFirestoreStaffDocByUserId(authUser.user.id);
-      const staffRef = existingStaffDoc ?? firebaseAdminDb.collection("staff").doc();
-      await staffRef.set({
-        userId: authUser.user.id,
-        schoolId: tenantSchoolId,
-        name,
-        role,
-        mobileNumber,
-        dateOfJoining,
-        monthlySalary,
-        subjectId,
-        isClassCoordinator,
-        assignedClass,
-        assignedSection,
-        createdAt: new Date().toISOString(),
-      }, { merge: true });
-
-      return {
-        id: staffRef.id,
-        userId: authUser.user.id,
+      return upsertFirebaseStaffAccount({
+        existingUserId: existingAuthUser.uid,
+        tenantSchoolId,
         name,
         email,
         mobileNumber,
         photoUrl,
+        password,
         role,
         dateOfJoining,
         monthlySalary,
@@ -2820,14 +2881,7 @@ const createStaff = async (payload, authHeader) => {
         assignedClass,
         assignedSection,
         isClassCoordinator,
-      };
-    } catch (error) {
-      if (createdAuthUser) {
-        await cleanupTable("staff", "userId", authUser.user.id);
-        await cleanupTable("users", "id", authUser.user.id);
-        await cleanupUser(authUser.user.id);
-      }
-      throw error;
+      });
     }
   }
 
@@ -2926,6 +2980,7 @@ const bulkImportStaff = async (payload, authHeader) => {
   const { profile } = await getUserProfile(authHeader);
   const tenantSchoolId = String(profile.school_id ?? "").trim();
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const overwriteExisting = Boolean(payload.overwriteExisting);
 
   if (!tenantSchoolId) {
     throw new Error("School context is missing for this staff import request.");
@@ -3002,6 +3057,7 @@ const bulkImportStaff = async (payload, authHeader) => {
           assignedClass: "",
           assignedSection: "",
           isClassCoordinator: false,
+          overwriteExisting,
         },
         authHeader,
       );

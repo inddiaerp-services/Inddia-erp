@@ -2101,8 +2101,14 @@ export const createStaff = async (values: StaffFormValues) => {
   return staff;
 };
 
-export const bulkImportStaff = async (rows: Record<string, unknown>[]): Promise<BulkImportResult> => {
-  const result = await invokeAdminAction<BulkImportResult>("bulk_import_staff", { rows });
+export const bulkImportStaff = async (
+  rows: Record<string, unknown>[],
+  options?: { overwriteExisting?: boolean },
+): Promise<BulkImportResult> => {
+  const result = await invokeAdminAction<BulkImportResult>("bulk_import_staff", {
+    rows,
+    overwriteExisting: Boolean(options?.overwriteExisting),
+  });
   invalidateSchoolScopedCache(["staff", "classes"]);
   return result;
 };

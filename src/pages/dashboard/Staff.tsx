@@ -294,7 +294,24 @@ export const StaffPage = () => {
         throw new Error("The selected Excel sheet is empty.");
       }
 
-      const result = await bulkImportStaff(rows);
+      let result = await bulkImportStaff(rows);
+
+      const duplicateFailures = result.results.filter(
+        (item) =>
+          !item.success &&
+          item.message.toLowerCase().includes("already exists"),
+      );
+
+      if (duplicateFailures.length > 0) {
+        const proceed = window.confirm(
+          `${duplicateFailures.length} imported staff email(s) already exist. Do you want to replace/update those existing staff accounts and continue?`,
+        );
+
+        if (proceed) {
+          result = await bulkImportStaff(rows, { overwriteExisting: true });
+        }
+      }
+
       setImportResult(result);
       await loadData();
       setError("");
