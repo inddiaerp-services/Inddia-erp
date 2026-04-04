@@ -3476,7 +3476,7 @@ export const loadAttendanceRoster = async (values: AttendanceFormValues): Promis
 
   if (studentError) throw new Error(studentError.message);
 
-  const studentIds = (studentRows ?? []).map((row) => row.id);
+  const studentIds = (studentRows ?? []).map((row: { id: string }) => row.id);
   let attendanceRows: AttendanceRow[] = [];
 
   if (studentIds.length > 0) {
@@ -3485,7 +3485,7 @@ export const loadAttendanceRoster = async (values: AttendanceFormValues): Promis
 
   const attendanceMap = new Map(attendanceRows.map((row) => [row.student_id, row]));
 
-  const rows: AttendanceRosterRow[] = (studentRows ?? []).map((student) => ({
+  const rows: AttendanceRosterRow[] = (studentRows ?? []).map((student: { id: string; name: string | null }) => ({
     studentId: student.id,
     studentName: student.name ?? "Unknown student",
     status: ((attendanceMap.get(student.id)?.status as "Present" | "Absent" | undefined) ?? "Present"),
@@ -3618,7 +3618,7 @@ export const deleteAttendanceSession = async (
     .eq("class", className)
     .eq("section", section);
   if (studentError) throw new Error(studentError.message);
-  const studentIds = (students ?? []).map((row) => row.id);
+  const studentIds = (students ?? []).map((row: { id: string }) => row.id);
   if (studentIds.length === 0) return;
   const { error } = await client
     .from("attendance")
@@ -4246,7 +4246,7 @@ export const loadExamMarksSession = async (
 
   if (studentError) throw new Error(studentError.message);
 
-  const studentIds = (studentRows ?? []).map((row) => row.id);
+  const studentIds = (studentRows ?? []).map((row: { id: string }) => row.id);
   let resultRows: MarkRow[] = [];
 
   if (studentIds.length > 0) {
@@ -6108,7 +6108,7 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
       return right - left;
     })
     .slice(0, 6)
-    .map((item: DashboardActivity & { timestamp?: string | null }) => ({
+    .map((item: { module: string; owner: string; status: string; timestamp: string | null | undefined }) => ({
       module: item.module,
       owner: item.owner,
       status: item.status,
