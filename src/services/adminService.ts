@@ -1363,6 +1363,7 @@ const syncClassCoordinator = async (
   previousAssignment?: { className: string; section: string } | null,
 ) => {
   if (firebaseDb) {
+    const db = firebaseDb;
     const schoolId = requireCurrentSchoolId();
     const staffRows = (await getFirestoreSchoolScopedDocs("staff", schoolId)).map((item) => ({
       id: item.id,
@@ -1374,7 +1375,7 @@ const syncClassCoordinator = async (
       payload: Record<string, unknown>,
     ) => {
       try {
-        await firebaseUpdateDoc(firebaseDoc(firebaseDb, "staff", staffId), payload);
+        await firebaseUpdateDoc(firebaseDoc(db, "staff", staffId), payload);
       } catch (error) {
         if (!isFirebasePermissionError(error)) {
           throw error;
