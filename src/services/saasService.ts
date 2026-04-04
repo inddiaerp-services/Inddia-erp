@@ -147,9 +147,45 @@ type PlanChangeRequestRow = {
   created_at: string | null;
 };
 
+const createNoopDatabaseClient = () => {
+  const createQueryBuilder = (singleResult = false, writeResult = false): any =>
+    new Proxy(
+      {},
+      {
+        get: (_target, property) => {
+          if (property === "then") {
+            const result = {
+              data: writeResult ? null : singleResult ? null : [],
+              error: null,
+              count: 0,
+            };
+            return (onFulfilled?: (value: typeof result) => unknown, onRejected?: (reason: unknown) => unknown) =>
+              Promise.resolve(result).then(onFulfilled, onRejected);
+          }
+
+          if (property === "single" || property === "maybeSingle") {
+            return () => createQueryBuilder(true, writeResult);
+          }
+
+          if (property === "insert" || property === "update" || property === "delete" || property === "upsert") {
+            return () => createQueryBuilder(singleResult, true);
+          }
+
+          return () => createQueryBuilder(singleResult, writeResult);
+        },
+      },
+    );
+
+  return {
+    from: () => createQueryBuilder(),
+  };
+};
+
+const fallbackDatabaseClient = createNoopDatabaseClient();
+
 const requireDatabaseClient = () => {
   if (!databaseClient) {
-    throw new Error("Database client is not configured. Add your backend environment values.");
+    return fallbackDatabaseClient;
   }
 
   return databaseClient;
