@@ -1596,7 +1596,7 @@ export const getClassesCount = async (): Promise<number> => {
 
 export const getClassDetail = async (classId: string): Promise<ClassDetail> => {
   if (firebaseDb) {
-    const snapshot = await getFirestoreDoc("classes", classId);
+    const snapshot = await getFirestoreDocument("classes", classId);
     if (!snapshot) {
       throw new Error("Class not found.");
     }
@@ -1857,7 +1857,7 @@ export const updateHoliday = async (holidayId: string, values: HolidayFormValues
     const schoolId = requireCurrentSchoolId();
 
     if (firebaseDb) {
-      const snapshot = await getFirestoreDoc("holidays", holidayId);
+      const snapshot = await getFirestoreDocument("holidays", holidayId);
       if (!snapshot) {
         throw new Error("Holiday not found.");
       }
@@ -1919,7 +1919,7 @@ export const deleteHoliday = async (holidayId: string) =>
     const schoolId = requireCurrentSchoolId();
 
     if (firebaseDb) {
-      const snapshot = await getFirestoreDoc("holidays", holidayId);
+      const snapshot = await getFirestoreDocument("holidays", holidayId);
       if (!snapshot) {
         throw new Error("Holiday not found.");
       }
@@ -1951,7 +1951,7 @@ export const deleteHoliday = async (holidayId: string) =>
 
 export const getSubjectDetail = async (subjectId: string) => {
   if (firebaseDb) {
-    const snapshot = await getFirestoreDoc("subjects", subjectId);
+    const snapshot = await getFirestoreDocument("subjects", subjectId);
     if (!snapshot) {
       throw new Error("Subject not found.");
     }
@@ -2072,7 +2072,7 @@ export const updateSubject = async (subjectId: string, values: SubjectFormValues
     if (!name) throw new Error("Subject name is required.");
 
     if (firebaseDb) {
-      const snapshot = await getFirestoreDoc("subjects", subjectId);
+      const snapshot = await getFirestoreDocument("subjects", subjectId);
       if (!snapshot) {
         throw new Error("Subject not found.");
       }
@@ -2117,7 +2117,7 @@ export const deleteSubject = async (subjectId: string) =>
     const schoolId = requireCurrentSchoolId();
 
     if (firebaseDb) {
-      const snapshot = await getFirestoreDoc("subjects", subjectId);
+      const snapshot = await getFirestoreDocument("subjects", subjectId);
       if (!snapshot) {
         throw new Error("Subject not found.");
       }
@@ -2238,7 +2238,7 @@ export const getStaffCount = async (): Promise<number> => {
 
 export const getStaffDetail = async (staffId: string) => {
   if (firebaseDb) {
-    const snapshot = await getFirestoreDoc("staff", staffId);
+    const snapshot = await getFirestoreDocument("staff", staffId);
     if (!snapshot) {
       throw new Error("Staff member not found.");
     }
@@ -2476,7 +2476,7 @@ export const getChildrenByParentUserId = async (parentUserId: string) => {
 
 export const getStudentDetail = async (studentId: string) => {
   if (firebaseDb) {
-    const snapshot = await getFirestoreDoc("students", studentId);
+    const snapshot = await getFirestoreDocument("students", studentId);
     if (!snapshot) {
       throw new Error("Student not found.");
     }
@@ -6187,13 +6187,13 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
         module: "Students",
         owner: student.name ?? "Unknown Student",
         status: "Available",
-        time: student.createdAt ? formatActivityTime(student.createdAt) : "-",
+        time: student.created_at ? formatActivityTime(student.created_at) : "-",
       })),
       ...staffRecords.map((member) => ({
         module: "Staff",
         owner: member.name ?? "Unknown Staff",
         status: member.role || "Staff",
-        time: member.createdAt ? formatActivityTime(member.createdAt) : "-",
+        time: member.created_at ? formatActivityTime(member.created_at) : "-",
       })),
     ].slice(0, 6);
 
