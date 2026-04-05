@@ -28,6 +28,16 @@ html {
   scroll-behavior: smooth;
 }
 
+html.translated-ltr,
+html.translated-rtl,
+body {
+  top: 0 !important;
+}
+
+body {
+  position: static !important;
+}
+
 html.native-app {
   background: #020617;
 }
@@ -92,6 +102,34 @@ input,
 select,
 textarea {
   touch-action: manipulation;
+}
+
+.goog-te-banner-frame.skiptranslate,
+iframe.goog-te-banner-frame,
+.goog-te-banner,
+.goog-te-menu-frame.skiptranslate,
+.goog-te-balloon-frame,
+.goog-te-ftab,
+#goog-gt-tt,
+.goog-tooltip,
+.goog-tooltip:hover {
+  display: none !important;
+}
+
+.skiptranslate {
+  font-size: 0;
+}
+
+body > .skiptranslate,
+.goog-logo-link,
+.goog-te-gadget span,
+.goog-te-gadget-simple img {
+  display: none !important;
+}
+
+.goog-text-highlight {
+  background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 @layer components {

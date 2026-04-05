@@ -6,6 +6,7 @@ import { listNotificationsForUser, markNotificationAsRead, syncUpcomingFeeRemind
 import Button from "../ui/Button";
 import { ROLES } from "../../config/roles";
 import type { NotificationRecord } from "../../types/admin";
+import LanguageSwitcher from "./LanguageSwitcher";
 
 type NavbarProps = {
   onMenuClick?: () => void;
@@ -154,6 +155,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
           </nav>
 
           <div className="flex items-center gap-3">
+            <LanguageSwitcher dark />
             {user ? (
               <Link to={user.role === ROLES.SUPER_ADMIN ? "/super-admin/dashboard" : "/dashboard/home"}>
                 <Button className="rounded-full px-6">Open Dashboard</Button>
@@ -189,6 +191,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
           </div>
 
           <div className="flex items-center gap-3">
+            <LanguageSwitcher dark />
             <div className="hidden items-center gap-3 rounded-2xl border border-white/10 bg-white/10 px-3 py-2 sm:flex">
               <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-sky-300 to-cyan-400 text-sm font-semibold text-slate-950">{initials}</div>
               <div className="text-right">
@@ -235,6 +238,8 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
             </svg>
             <span className="text-sm text-slate-400">Search students, classes, fees, or reports</span>
           </div>
+
+          <LanguageSwitcher />
 
           <div className="relative">
             <button
