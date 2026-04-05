@@ -1,13 +1,12 @@
 import { useEffect } from "react";
-import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
+import type { User as FirebaseUser } from "firebase/auth";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import Home from "./pages/home/Home";
 import Login from "./pages/auth/Login";
 import DashboardHome from "./pages/dashboard/Home";
 import ChildPage from "./pages/dashboard/Child";
 import { authStore } from "./store/authStore";
-import { hydrateAuthSession, restoreSession } from "./services/authService";
-import { firebaseAuth } from "./services/firebaseClient";
+import { hydrateAuthSession, restoreSession, subscribeToAuthSessionChanges } from "./services/authService";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import ProtectedRoute from "./components/layout/ProtectedRoute";
 import RoleProtectedRoute from "./components/layout/RoleProtectedRoute";
@@ -175,13 +174,7 @@ function App() {
 
     void initialize();
 
-    if (!firebaseAuth) {
-      return () => {
-        mounted = false;
-      };
-    }
-
-    const subscription = onAuthStateChanged(firebaseAuth, (sessionUser: FirebaseUser | null) => {
+    const subscription = subscribeToAuthSessionChanges((sessionUser: FirebaseUser | null) => {
       window.setTimeout(() => {
         if (!mounted || initializing) return;
 

@@ -944,7 +944,7 @@ const upsertFirebaseStaffAccount = async ({
     });
 
     const existingStaffDoc = await findFirestoreStaffDocByUserId(authUser.user.id);
-    const staffRef = existingStaffDoc ?? firebaseAdminDb.collection("staff").doc();
+    const staffRef = existingStaffDoc?.ref ?? firebaseAdminDb.collection("staff").doc();
     const createdAt =
       getFirestoreString(existingStaffDoc?.data() ?? {}, ["createdAt", "created_at"]) ?? new Date().toISOString();
 

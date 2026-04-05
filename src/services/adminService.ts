@@ -4,13 +4,12 @@ import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../utils/ad
 import { authStore, type AppSession } from "../store/authStore";
 import { firebaseAuth, firebaseDb } from "./firebaseClient";
 import { databaseClient } from "./databaseClient";
+import { getFirestoreDocumentCached, invalidateFirebaseCache, queryFirestoreCollectionCached } from "./firebaseService";
 import {
   collection as firebaseCollection,
   deleteDoc as firebaseDeleteDoc,
   doc as firebaseDoc,
   getCountFromServer,
-  getDoc as firebaseGetDoc,
-  getDocs as firebaseGetDocs,
   limit,
   query as firebaseQuery,
   setDoc as firebaseSetDoc,
@@ -715,23 +714,23 @@ const getFirestoreSchoolScopedDocs = async (collectionName: string, schoolId: st
   if (!firebaseDb) return [];
 
   try {
-    const camelSnapshot = await firebaseGetDocs(
-      firebaseQuery(firebaseCollection(firebaseDb, collectionName), firebaseWhere("schoolId", "==", schoolId)),
-    );
+    const camelDocs = await queryFirestoreCollectionCached({
+      collectionName,
+      filters: [{ field: "schoolId", value: schoolId }],
+      cacheKey: `admin:${schoolId}:${collectionName}:schoolId`,
+    });
 
-    if (!camelSnapshot.empty) {
-      return camelSnapshot.docs
-        .map((item) => ({ id: item.id, data: item.data() as Record<string, unknown> }))
-        .filter((item) => !isFirebaseSystemMetaDoc(item.data));
+    if (camelDocs.length > 0) {
+      return camelDocs.filter((item) => !isFirebaseSystemMetaDoc(item.data));
     }
 
-    const snakeSnapshot = await firebaseGetDocs(
-      firebaseQuery(firebaseCollection(firebaseDb, collectionName), firebaseWhere("school_id", "==", schoolId)),
-    );
+    const snakeDocs = await queryFirestoreCollectionCached({
+      collectionName,
+      filters: [{ field: "school_id", value: schoolId }],
+      cacheKey: `admin:${schoolId}:${collectionName}:school_id`,
+    });
 
-    return snakeSnapshot.docs
-      .map((item) => ({ id: item.id, data: item.data() as Record<string, unknown> }))
-      .filter((item) => !isFirebaseSystemMetaDoc(item.data));
+    return snakeDocs.filter((item) => !isFirebaseSystemMetaDoc(item.data));
   } catch (error) {
     if (isFirebaseQuotaError(error)) {
       throw error;
@@ -775,18 +774,17 @@ const getFirestoreDocsByFilterVariants = async (
 
   for (const filters of variants) {
     try {
-      const baseConstraints = filters.map((filter) => firebaseWhere(filter.field, "==", filter.value));
-      const collectionRef = firebaseCollection(firebaseDb, collectionName);
-      const scopedQuery = firebaseQuery(collectionRef, ...baseConstraints);
-      const finalQuery =
-        typeof options?.limit === "number" ? firebaseQuery(scopedQuery, limit(options.limit)) : scopedQuery;
+      const docs = await queryFirestoreCollectionCached({
+        collectionName,
+        filters: filters.map((filter) => ({ field: filter.field, value: filter.value })),
+        limitCount: options?.limit,
+        cacheKey: `admin:${collectionName}:${filters
+          .map((filter) => `${filter.field}=${String(filter.value ?? "")}`)
+          .join("&")}:limit=${options?.limit ?? "none"}`,
+      });
 
-      const snapshot = await firebaseGetDocs(finalQuery);
-
-      if (!snapshot.empty) {
-        return snapshot.docs
-          .map((item) => ({ id: item.id, data: item.data() as Record<string, unknown> }))
-          .filter((item) => !isFirebaseSystemMetaDoc(item.data));
+      if (docs.length > 0) {
+        return docs.filter((item) => !isFirebaseSystemMetaDoc(item.data));
       }
     } catch (error) {
       if (isFirebaseQuotaError(error)) {
@@ -848,9 +846,11 @@ const getFirestoreDocument = async (collectionName: string, id: string) => {
   if (!firebaseDb) return null;
 
   try {
-    const snapshot = await firebaseGetDoc(firebaseDoc(firebaseDb, collectionName, id));
-    if (!snapshot.exists()) return null;
-    return { id: snapshot.id, data: snapshot.data() as Record<string, unknown> };
+    return getFirestoreDocumentCached({
+      collectionName,
+      id,
+      cacheKey: `admin:${collectionName}:doc:${id}`,
+    });
   } catch (error) {
     if (isFirebaseQuotaError(error)) {
       throw error;
@@ -929,6 +929,8 @@ const invalidateSchoolScopedCache = (namespaces?: string[]) => {
   const schoolId = getCurrentSchoolId();
   if (!schoolId) return;
 
+  invalidateFirebaseCache([`admin:${schoolId}:`, `admin:`]);
+
   if (!namespaces?.length) {
     Array.from(schoolScopedCache.keys())
       .filter((key) => key.startsWith(`${schoolId}::`))
@@ -944,6 +946,8 @@ const invalidateSchoolScopedCache = (namespaces?: string[]) => {
 const invalidateSchoolScopedCacheByPrefix = (prefixes: string[]) => {
   const schoolId = getCurrentSchoolId();
   if (!schoolId || prefixes.length === 0) return;
+
+  invalidateFirebaseCache([`admin:${schoolId}:`, `admin:`]);
 
   Array.from(schoolScopedCache.keys())
     .filter((key) =>
@@ -6681,11 +6685,21 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
 
     try {
       const [studentsSnapshot, staffSnapshot] = await Promise.all([
-        firebaseGetDocs(firebaseQuery(firebaseCollection(firebaseDb, "students"), firebaseWhere("schoolId", "==", schoolId), limit(3))),
-        firebaseGetDocs(firebaseQuery(firebaseCollection(firebaseDb, "staff"), firebaseWhere("schoolId", "==", schoolId), limit(3))),
+        queryFirestoreCollectionCached({
+          collectionName: "students",
+          filters: [{ field: "schoolId", value: schoolId }],
+          limitCount: 3,
+          cacheKey: `admin:${schoolId}:students:overview:limit=3`,
+        }),
+        queryFirestoreCollectionCached({
+          collectionName: "staff",
+          filters: [{ field: "schoolId", value: schoolId }],
+          limitCount: 3,
+          cacheKey: `admin:${schoolId}:staff:overview:limit=3`,
+        }),
       ]);
-      studentDocs = studentsSnapshot.docs;
-      staffDocs = staffSnapshot.docs;
+      studentDocs = studentsSnapshot;
+      staffDocs = staffSnapshot;
     } catch (error) {
       if (isFirebaseQuotaError(error)) {
         throw error;
@@ -6696,8 +6710,8 @@ export const getDashboardOverview = async (): Promise<DashboardOverview> => {
       // If permissions are denied, studentDocs and staffDocs remain empty arrays
     }
 
-    const studentRecords = studentDocs.map((item) => mapFirebaseStudentRow(item.id, item.data() as Record<string, unknown>));
-    const staffRecords = staffDocs.map((item) => mapFirebaseStaffRow(item.id, item.data() as Record<string, unknown>));
+    const studentRecords = studentDocs.map((item) => mapFirebaseStudentRow(item.id, item.data as Record<string, unknown>));
+    const staffRecords = staffDocs.map((item) => mapFirebaseStaffRow(item.id, item.data as Record<string, unknown>));
 
     const stats: DashboardMetric[] = [
       {

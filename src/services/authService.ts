@@ -7,18 +7,10 @@ import {
   signOut,
   updatePassword as updateFirebasePassword,
 } from "firebase/auth";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  query,
-  where,
-} from "firebase/firestore";
 import { ROLES, type AppRole } from "../config/roles";
 import { authStore, getBootstrapAdmin, type AppSession, type AuthUser, type CurrentSchool } from "../store/authStore";
 import { ensureFirebasePersistence, firebaseAuth, firebaseDb, hasFirebaseConfig } from "./firebaseClient";
+import { getFirestoreDocumentCached, queryFirestoreCollectionCached, subscribeToFirebaseAuthState } from "./firebaseService";
 import { getAdminApiEndpoints, getAdminApiUnavailableMessage } from "../utils/adminApi";
 
 const DEFAULT_ADMIN = {
@@ -133,6 +125,8 @@ const schoolProfileCache = new Map<string, Promise<CurrentSchool | null>>();
 const userProfileCache = new Map<string, Promise<AuthUser>>();
 const userProfileByEmailCache = new Map<string, Promise<AuthUser>>();
 let lastResolvedAuthState: { uid: string; value: ResolvedAuthState } | null = null;
+const AUTH_CONTEXT_CACHE_TTL_MS = 60_000;
+const authContextCache = new Map<string, { expiresAt: number; value: ResolvedAuthState }>();
 
 const postToAdminApi = async (body: string, accessToken: string) => {
   let lastError: unknown = null;
@@ -258,14 +252,19 @@ const fetchSchoolProfile = async (schoolId: string | null | undefined): Promise<
 
   const request = (async () => {
     try {
-      const snapshot = await getDoc(doc(firebaseDb, "schools", cacheKey));
-      if (!snapshot.exists()) {
+      const snapshot = await getFirestoreDocumentCached({
+        collectionName: "schools",
+        id: cacheKey,
+        cacheKey: `auth:school:${cacheKey}`,
+      });
+
+      if (!snapshot) {
         return createSchoolFallback(cacheKey);
       }
 
       return mapSchool({
         id: snapshot.id,
-        ...(snapshot.data() as Omit<SchoolRow, "id">),
+        ...(snapshot.data as Omit<SchoolRow, "id">),
       });
     } catch (error) {
       if (isFirebasePermissionError(error)) {
@@ -293,14 +292,19 @@ const fetchUserProfile = async (userId: string): Promise<AuthUser> => {
 
   const request = (async () => {
     try {
-      const snapshot = await getDoc(doc(firebaseDb, "users", cacheKey));
-      if (!snapshot.exists()) {
+      const snapshot = await getFirestoreDocumentCached({
+        collectionName: "users",
+        id: cacheKey,
+        cacheKey: `auth:user:${cacheKey}`,
+      });
+
+      if (!snapshot) {
         throw new Error("Unable to load the user profile.");
       }
 
       return mapUser({
         id: snapshot.id,
-        ...(snapshot.data() as Omit<UsersRow, "id">),
+        ...(snapshot.data as Omit<UsersRow, "id">),
       });
     } catch (error) {
       if (isFirebasePermissionError(error)) {
@@ -327,17 +331,14 @@ const fetchUserProfileByEmail = async (email: string): Promise<AuthUser> => {
   }
 
   const request = (async () => {
-    const snapshot = await getDocs(
-      query(
-        collection(firebaseDb, "users"),
-        where("email", "==", cacheKey),
-        limit(2),
-      ),
-    );
-
-    const rows = snapshot.docs.map((item) => ({
+    const rows = (await queryFirestoreCollectionCached({
+      collectionName: "users",
+      filters: [{ field: "email", value: cacheKey }],
+      limitCount: 2,
+      cacheKey: `auth:user-by-email:${cacheKey}`,
+    })).map((item) => ({
       id: item.id,
-      ...(item.data() as Omit<UsersRow, "id">),
+      ...(item.data as Omit<UsersRow, "id">),
     }));
 
     return mapUser(
@@ -357,6 +358,11 @@ const fetchUserProfileByEmail = async (email: string): Promise<AuthUser> => {
 };
 
 const resolveAuthFromUser = async (firebaseUser: FirebaseUser) => {
+  const cachedAuthState = authContextCache.get(firebaseUser.uid);
+  if (cachedAuthState && cachedAuthState.expiresAt > Date.now()) {
+    return cachedAuthState.value;
+  }
+
   if (lastResolvedAuthState?.uid === firebaseUser.uid) {
     return lastResolvedAuthState.value;
   }
@@ -390,12 +396,20 @@ const resolveAuthFromUser = async (firebaseUser: FirebaseUser) => {
       : await fetchSchoolProfile(resolvedUser.schoolId);
     const result = { user: resolvedUser, role: resolvedUser.role, school, session };
     lastResolvedAuthState = { uid: firebaseUser.uid, value: result };
+    authContextCache.set(firebaseUser.uid, {
+      value: result,
+      expiresAt: Date.now() + AUTH_CONTEXT_CACHE_TTL_MS,
+    });
     return result;
   } catch (profileError) {
     const sessionEmail = firebaseUser.email?.trim().toLowerCase();
     if (sessionEmail === DEFAULT_ADMIN.email) {
       const result = { user: mapDefaultAdminSessionUser(firebaseUser), role: ROLES.SUPER_ADMIN, school: null, session };
       lastResolvedAuthState = { uid: firebaseUser.uid, value: result };
+      authContextCache.set(firebaseUser.uid, {
+        value: result,
+        expiresAt: Date.now() + AUTH_CONTEXT_CACHE_TTL_MS,
+      });
       return result;
     }
 
@@ -409,12 +423,20 @@ const resolveAuthFromUser = async (firebaseUser: FirebaseUser) => {
         const school = await fetchSchoolProfile(resolvedUser.schoolId);
         const result = { user: resolvedUser, role: resolvedUser.role, school, session };
         lastResolvedAuthState = { uid: firebaseUser.uid, value: result };
+        authContextCache.set(firebaseUser.uid, {
+          value: result,
+          expiresAt: Date.now() + AUTH_CONTEXT_CACHE_TTL_MS,
+        });
         return result;
       } catch {
         const fallbackUser = mapSessionUserFallback(firebaseUser, hints);
         const school = await fetchSchoolProfile(fallbackUser.schoolId);
         const result = { user: fallbackUser, role: fallbackUser.role, school, session };
         lastResolvedAuthState = { uid: firebaseUser.uid, value: result };
+        authContextCache.set(firebaseUser.uid, {
+          value: result,
+          expiresAt: Date.now() + AUTH_CONTEXT_CACHE_TTL_MS,
+        });
         return result;
       }
     }
@@ -577,6 +599,11 @@ export const logoutUser = async () => {
   }
 
   lastResolvedAuthState = null;
+  authContextCache.clear();
   await signOut(firebaseAuth);
   authStore.getState().logout();
 };
+
+export const subscribeToAuthSessionChanges = (
+  listener: (firebaseUser: FirebaseUser | null) => void,
+) => subscribeToFirebaseAuthState(listener);
