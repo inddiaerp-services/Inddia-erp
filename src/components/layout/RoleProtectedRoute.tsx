@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { getStaffByUserId } from "../../services/adminService";
 import type { StaffWorkspace } from "../../config/staffWorkspaces";
 import { normalizeStaffWorkspace } from "../../config/staffWorkspaces";
+import { getDefaultRouteForRole } from "../../utils/navigation";
 
 type RoleProtectedRouteProps = {
   allowedRoles: AppRole[];
@@ -52,11 +53,11 @@ export const RoleProtectedRoute = ({ allowedRoles, allowedStaffWorkspaces }: Rol
   }
 
   if (!role || !allowedRoles.includes(role)) {
-    return <Navigate to="/dashboard/home" replace />;
+    return <Navigate to={getDefaultRouteForRole(role)} replace />;
   }
 
   if (role === "staff" && allowedStaffWorkspaces && !workspaceAllowed) {
-    return <Navigate to="/dashboard/home" replace />;
+    return <Navigate to={getDefaultRouteForRole(role)} replace />;
   }
 
   return <Outlet />;

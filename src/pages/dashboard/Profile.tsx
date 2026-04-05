@@ -15,9 +15,11 @@ import {
 import { authStore } from "../../store/authStore";
 import type { StaffRecord, StudentRecord } from "../../types/admin";
 import { AdminPageHeader, CompactMetricCard, DetailField, DetailSection } from "./adminPageUtils";
+import { getDefaultRouteForRole } from "../../utils/navigation";
 
 const roleLabels: Record<string, string> = {
   admin: "Admin",
+  principal: "Principal",
   staff: "Teacher",
   student: "Student",
   parent: "Parent",
@@ -32,6 +34,7 @@ type ProfileMetrics = {
 
 export const ProfilePage = () => {
   const { user, role } = authStore();
+  const userId = user?.id;
   const [staffProfile, setStaffProfile] = useState<StaffRecord | null>(null);
   const [studentProfile, setStudentProfile] = useState<StudentRecord | null>(null);
   const [linkedChildren, setLinkedChildren] = useState<StudentRecord[]>([]);
@@ -44,15 +47,15 @@ export const ProfilePage = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || !role) return;
+    if (!userId || !role) return;
 
     const run = async () => {
       setLoading(true);
       try {
         if (role === ROLES.STAFF) {
           const [staff, notifications] = await Promise.all([
-            getStaffByUserId(user.id),
-            listNotificationsForUser(user.id, role),
+            getStaffByUserId(userId),
+            listNotificationsForUser(userId, role),
           ]);
 
           setStaffProfile(staff);
@@ -68,7 +71,7 @@ export const ProfilePage = () => {
         }
 
         if (role === ROLES.STUDENT) {
-          const student = await getStudentByUserId(user.id);
+          const student = await getStudentByUserId(userId);
           const [attendance, results, fees] = student
             ? await Promise.all([
                 listAttendance({ studentId: student.id }),
@@ -90,7 +93,7 @@ export const ProfilePage = () => {
         }
 
         if (role === ROLES.PARENT) {
-          const children = await getChildrenByParentUserId(user.id);
+          const children = await getChildrenByParentUserId(userId);
           const childIds = new Set(children.map((child) => child.id));
           const [attendance, results, fees] = await Promise.all([
             children.length > 0 ? listAttendance() : Promise.resolve([]),
@@ -110,7 +113,7 @@ export const ProfilePage = () => {
           return;
         }
 
-        const notifications = await listNotificationsForUser(user.id, role);
+        const notifications = await listNotificationsForUser(userId, role);
         setStaffProfile(null);
         setStudentProfile(null);
         setLinkedChildren([]);
@@ -126,7 +129,7 @@ export const ProfilePage = () => {
     };
 
     void run();
-  }, [role, user]);
+  }, [role, userId]);
 
   const primaryProfileLabel = useMemo(() => {
     if (role === ROLES.STAFF) {
@@ -154,7 +157,7 @@ export const ProfilePage = () => {
         title="Profile"
         description="View your ERP identity, connected role information, and linked academic or workspace context."
         action={
-          <Link to="/dashboard/settings">
+          <Link to={role ? `${getDefaultRouteForRole(role).replace(/\/dashboard$/, "").replace(/\/home$/, "")}/settings` : "/dashboard/settings"}>
             <Button variant="outline">Open Settings</Button>
           </Link>
         }
@@ -213,7 +216,7 @@ export const ProfilePage = () => {
           <DetailField label="Role" value={user?.role ? roleLabels[user.role] ?? user.role : "-"} />
           <DetailField label="School ID" value={user?.schoolId ?? "-"} />
           <DetailField label="User ID" value={user?.id ?? "-"} />
-          <DetailField label="Access Level" value={role === ROLES.ADMIN ? "Full access" : "Role-based workspace access"} />
+          <DetailField label="Access Level" value={role === ROLES.ADMIN ? "Full access" : role === ROLES.PRINCIPAL ? "Read-only leadership access with approvals" : "Role-based workspace access"} />
         </DetailSection>
 
         <DetailSection title="Role Context">

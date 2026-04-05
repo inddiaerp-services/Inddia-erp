@@ -15,9 +15,11 @@ import {
   type TeacherTimetableAlertSettings,
 } from "../../utils/teacherTimetableAlerts";
 import { AdminPageHeader, DetailField, DetailSection } from "./adminPageUtils";
+import { getDefaultRouteForRole } from "../../utils/navigation";
 
 const roleLabels: Record<string, string> = {
   admin: "Admin",
+  principal: "Principal",
   staff: "Teacher",
   student: "Student",
   parent: "Parent",
@@ -51,6 +53,7 @@ export const SettingsPage = () => {
   const roleLabel = role ? roleLabels[role] ?? role : "User";
   const securityLevel = useMemo(() => {
     if (role === ROLES.ADMIN) return "High access";
+    if (role === ROLES.PRINCIPAL) return "Leadership access";
     if (role === ROLES.STAFF) return "Managed staff access";
     if (role === ROLES.STUDENT || role === ROLES.PARENT) return "Limited academic access";
     return "Standard access";
@@ -151,7 +154,7 @@ export const SettingsPage = () => {
         title="Settings"
         description="Review your session, access model, interface preferences, and ERP usage guidance."
         action={
-          <Link to="/dashboard/profile">
+          <Link to={role ? `${getDefaultRouteForRole(role).replace(/\/dashboard$/, "").replace(/\/home$/, "")}/profile` : "/dashboard/profile"}>
             <Button variant="outline">Open Profile</Button>
           </Link>
         }
@@ -195,7 +198,7 @@ export const SettingsPage = () => {
           <DetailField label="Account Provisioning" value="Accounts are created and managed by admin only" />
           <DetailField label="Session Restore" value="Your ERP session is restored automatically when available" />
           <DetailField label="Recommended Practice" value="Use a private device and sign out after shared usage" />
-          <DetailField label="Sensitive Workflows" value={role === ROLES.ADMIN ? "Includes full system administration" : "Restricted by role permissions"} />
+          <DetailField label="Sensitive Workflows" value={role === ROLES.ADMIN ? "Includes full system administration" : role === ROLES.PRINCIPAL ? "Read-only oversight with limited approval actions" : "Restricted by role permissions"} />
           <DetailField label="Support Path" value="Contact ERP administrator for account changes or access issues" />
         </DetailSection>
       </div>

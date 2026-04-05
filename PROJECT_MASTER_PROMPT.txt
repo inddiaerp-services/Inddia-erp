@@ -1,0 +1,552 @@
+INDDIA ERP MASTER PROJECT PROMPT
+
+Use this prompt when you want an AI assistant, developer, or implementation agent to understand the INDDIA ERP project deeply and continue work consistently.
+
+PROJECT IDENTITY
+
+Project name: INDDIA ERP
+Project type: School ERP / School Management Platform
+Primary purpose: A production-oriented multi-role ERP platform for schools, with a super-admin layer for platform-wide control and school-level dashboards for operations.
+Current state: Active product build with broad frontend coverage, shared dashboard shell, Firebase-based auth and Firestore integration in progress, plus remnants of an older Supabase-oriented data shape in some service and type layers.
+
+HIGH-LEVEL PRODUCT GOAL
+
+Build and maintain a scalable school ERP platform that supports:
+- Platform owner operations through a Super Admin console
+- School administration through an Admin dashboard
+- Faculty workflows through Staff/Teacher dashboards
+- Student access for academic visibility
+- Parent access for child monitoring
+- Mobile-friendly usage and Capacitor readiness
+
+The system should feel like a full operational platform, not a demo. It should support real workflows for attendance, fees, classes, timetable, staffing, billing, transport, analytics, notifications, subscription management, and audit visibility.
+
+TECH STACK
+
+Frontend:
+- React 18
+- TypeScript
+- Vite
+- React Router
+- Tailwind CSS
+- Zustand for auth/session state
+- Recharts for analytics/charts
+
+Backend / Data / Platform:
+- Firebase Auth
+- Firebase Firestore
+- Firebase Admin SDK on server side
+- Admin API endpoints in Node ESM
+- Project is in migration from Supabase-oriented structures to Firebase-backed execution
+
+Build/runtime:
+- Vite frontend
+- Node server modules in ESM
+- Capacitor-ready mobile posture
+
+CURRENT ARCHITECTURE SUMMARY
+
+The app is a single-page React application with shared layout shells and role-protected routes.
+
+Core entry points:
+- src/main.tsx mounts the app, router, and global language provider
+- src/App.tsx contains routing, auth restore logic, protected/public routes, and role-aware navigation flows
+- src/components/layout/DashboardLayout.tsx is the shared shell for main dashboard and super-admin dashboard
+- src/components/layout/Navbar.tsx contains topbar controls, notifications, logout, and the global language icon
+- src/store/authStore.ts manages user, role, school, session, and loading state via Zustand
+- src/services/authService.ts handles login/session restoration and auth hydration
+- src/services/adminService.ts is the broad service layer for ERP operations
+- src/services/firebaseClient.ts initializes Firebase app/auth/firestore
+
+ROLES AND ACCESS MODEL
+
+Primary roles:
+- super_admin
+- admin
+- principal
+- staff
+- student
+- parent
+
+Role rules:
+- No public signup
+- Super Admin creates schools and school admin accounts
+- School admins create staff and student accounts in their own school
+- Staff login is email + password
+- Student login resolves student identity into a managed account flow
+- Parent views are scoped to linked child data
+
+Super Admin capabilities:
+- Platform dashboard
+- School management
+- School creation
+- School profile and edit
+- Billing management
+- Payment verification/review
+- Storage management
+- Audit logs
+
+School Admin capabilities:
+- Dashboard and analytics
+- Student management
+- Staff management
+- Class management
+- Subjects
+- Timetable
+- Student attendance
+- Exams and results
+- Holidays
+- Admission/applicants
+- HR/employees
+- Staff attendance
+- Leaves
+- Notifications
+- Fees/accounts
+- Subscription and platform billing
+- Salary
+- Transport and routes
+- Profile
+- Audit logs
+- Settings
+
+Principal capabilities:
+- Dedicated principal dashboard
+- Analytics-focused school overview
+- Read-only student visibility
+- Read-only staff visibility
+- School attendance oversight
+- Leave approvals at leadership stage
+- Admission approval decisions
+- Discipline monitoring via attendance-risk signals
+- Profile
+- Settings
+
+Principal constraints:
+- School-scoped only
+- Exactly one principal per school
+- Cannot create staff
+- Cannot delete records
+- Cannot broadly edit core operational data
+- Should function as observer + decision maker
+
+Staff capabilities:
+- Dashboard
+- Analytics in some contexts
+- Timetable
+- Attendance-related pages
+- Exams/results depending on role mapping
+- Notifications
+- Profile
+- Settings
+- Department workspace behavior is influenced by staffWorkspaces config
+
+Student capabilities:
+- Dashboard
+- Timetable
+- Results
+- Attendance visibility
+- Notifications
+- Profile
+- Settings
+
+Parent capabilities:
+- Dashboard
+- Timetable
+- Results
+- Attendance visibility
+- Notifications
+- Child profile monitoring
+- Profile
+- Settings
+
+STAFF WORKSPACE MODEL
+
+Staff role is further normalized into workspace contexts:
+- teacher
+- hr
+- accounts
+- transport
+- admission
+
+The workspace affects page behavior, permissions, and dashboard framing. When working on staff features, preserve this workspace-aware model instead of assuming every staff user is only a classroom teacher.
+
+ROUTING MODEL
+
+Important public routes:
+- /
+- /home
+- /login
+
+Protected super admin routes include:
+- /super-admin/dashboard
+- /super-admin/schools
+- /super-admin/schools/new
+- /super-admin/schools/:id
+- /super-admin/schools/:id/edit
+- /super-admin/billing
+- /super-admin/billing/new
+- /super-admin/billing/:schoolId/edit
+- /super-admin/payments
+- /super-admin/verification
+- /super-admin/payments/:paymentId/edit
+- /super-admin/storage
+- /super-admin/storage/:schoolId/edit
+- /super-admin/audit-logs
+
+Protected school dashboard routes include pages such as:
+- /dashboard/home
+- /dashboard/profile
+- /dashboard/settings
+- /dashboard/students
+- /dashboard/classes
+- /dashboard/subjects
+- /dashboard/staff
+- /dashboard/timetable
+- /dashboard/attendance
+- /dashboard/exams
+- /dashboard/results
+- /dashboard/holidays
+- /dashboard/applicants
+- /dashboard/employees
+- /dashboard/staff-attendance
+- /dashboard/leaves
+- /dashboard/notifications
+- /dashboard/fees
+- /dashboard/vehicles
+- /dashboard/routes
+- /dashboard/analytics
+- /dashboard/audit-logs
+- /dashboard/subscription
+- /dashboard/platform-payments
+- /dashboard/billing-history
+- /dashboard/invoices
+- /dashboard/renewal-reminders
+- /dashboard/plan-upgrade
+- /dashboard/usage
+- /dashboard/school-billing-profile
+- /dashboard/salary
+- /dashboard/child
+
+Protected principal routes include:
+- /principal/dashboard
+- /principal/analytics
+- /principal/students
+- /principal/staff
+- /principal/attendance
+- /principal/approvals
+- /principal/discipline
+- /principal/profile
+- /principal/settings
+
+There are also detail and advanced module routes for:
+- applicants
+- attendance
+- exams
+- exam groups
+- exam marks
+- fee details
+- leaves and leave impact
+- notifications
+- results
+- salary
+- route detail
+- vehicle detail
+
+AUTHENTICATION AND SESSION MODEL
+
+The app uses Firebase Auth where configured, but it also includes a bootstrap fallback super admin.
+
+Important auth concepts:
+- Zustand auth store holds user, role, school, session, and loading
+- App boot attempts restoreSession
+- onAuthStateChanged hydrates or clears state
+- If Firebase is absent or still being wired, bootstrap super admin fallback may allow entry
+- Principal is a first-class auth role and redirects to /principal/dashboard after login
+
+Bootstrap admin behavior:
+- There is a default super admin fallback login
+- It is intended as a platform-owner access fallback before full production auth is finalized
+- This should not be treated as the final enterprise auth design
+
+Auth implementation notes:
+- Do not break restoreSession, hydrateAuthSession, or protected route behavior
+- Preserve session hydration timing and loading states
+- Respect role-aware redirect logic
+
+DATA AND BACKEND MODEL
+
+This project is mid-migration, so think of it as having two overlapping realities:
+
+1. Desired backend direction:
+- Firebase Auth
+- Firestore as operational datastore
+- Firebase Admin server utilities
+- Server-backed admin API helpers
+
+2. Legacy/current service shape:
+- Many rows/types still use SQL-table style names and Supabase-era concepts
+- Service methods and record types often resemble relational schemas
+- Code should be modernized carefully rather than rewritten blindly
+
+Backend/service files to understand before heavy changes:
+- src/services/authService.ts
+- src/services/adminService.ts
+- src/services/firebaseClient.ts
+- server/adminServer.mjs
+- server/adminApi.mjs
+- server/firebaseAdmin.mjs
+- api/admin.mjs
+
+Important implementation principle:
+- When changing data flows, preserve current behavior first
+- Avoid destructive rewrites unless specifically requested
+- Work incrementally toward Firebase-native consistency
+
+IMPORTANT CURRENT PRINCIPAL IMPLEMENTATION DETAIL
+
+The product request described nested Firestore staff documents under:
+- schools/{schoolId}/staff/{staffId}
+
+However, the current app architecture still uses school-scoped root collections with a schoolId field for operational compatibility across the existing services. The principal role was therefore implemented in the current school-scoped collection model instead of rewriting the whole data layer.
+
+That means:
+- Staff records remain in the existing staff collection
+- Principal records are school-scoped via schoolId
+- Principal uniqueness is enforced per school
+- Auth custom claims carry role=principal and schoolId
+- Public user profile role is principal
+
+FEATURE MODULES IN SCOPE
+
+The ERP currently covers or is intended to cover:
+- Dashboard overview
+- Analytics
+- Student records
+- Staff records
+- Classes and sections
+- Subjects
+- Timetable scheduling
+- Student attendance
+- Staff attendance
+- Exams
+- Results
+- Holidays
+- Admission/applicant pipeline
+- HR/employee management
+- Leave management
+- Notifications
+- Fees and accounts
+- Subscription and billing
+- Salary
+- Vehicles and transport routes
+- Parent child monitoring
+- Profile/settings
+- Audit logs
+- Principal leadership workspace
+
+UI / UX STRUCTURE
+
+Design system characteristics:
+- Shared dashboard shell
+- Sidebar navigation by role
+- Top navbar with notifications, logout, and language icon
+- Mobile support with dedicated mobile components and bottom navigation
+- Tailwind-based modern glass/panel styling
+- Separate visual treatment for school dashboard and super-admin console
+
+Current language feature:
+- A top-right icon-based language switcher exists globally
+- It uses a Google Translate bridge for full-site translation
+- Supported Indian languages are selectable
+- Requested but unsupported languages are listed as unavailable
+- Banner/UI suppression CSS is applied to hide Google Translate top overlays
+
+If working on localization:
+- Preserve the icon trigger in the top-right area
+- Do not reintroduce the Google Translate top banner
+- If implementing true internal i18n later, replace the bridge carefully without breaking current UX
+
+CURRENT PRINCIPAL ROLE FEATURE
+
+The app now supports a principal role with these implementation rules:
+
+- Principal is added as a real application role, not just a staff subtype
+- Principal accounts are created through the Staff module by school admins
+- Staff role options now include Principal
+- Only one principal can exist per school
+- Principal creation is checked both client-side and server-side
+- Firebase Auth custom claims for principal include:
+  role: principal
+  schoolId: current school
+- Principal users get redirected to /principal/dashboard after login
+- Principal has dedicated sidebar and mobile bottom navigation
+- Principal pages are designed for monitoring and approvals, not broad editing
+
+Principal route/page coverage currently includes:
+- Dashboard
+- Analytics
+- Students (read-only)
+- Staff (read-only)
+- Attendance (read-only)
+- Approvals
+- Discipline
+- Profile
+- Settings
+
+Principal approvals currently cover:
+- Final leave approvals via the admin-stage leave workflow
+- Admission approval decisions through the existing applicant flow
+
+Principal discipline currently uses:
+- Attendance-risk based monitoring
+
+This is a pragmatic implementation because there is no dedicated discipline incidents backend yet. Do not describe it as a full incident-management module unless that backend is actually added.
+
+MOBILE AND RESPONSIVENESS
+
+The project is mobile-aware and Capacitor-ready.
+
+Important mobile notes:
+- Mobile shell and connectivity banner already exist
+- Bottom nav is used on smaller screens
+- Layouts must continue to work on desktop and mobile
+- Native builds are expected to use deployed HTTPS admin APIs rather than localhost
+- The project has explicit mobile environment expectations in the README
+
+ENVIRONMENT AND CONFIGURATION
+
+There are frontend Vite env values and server-side env values.
+
+Frontend expects values like:
+- VITE_ADMIN_API_URL
+- VITE_FIREBASE_API_KEY
+- VITE_FIREBASE_AUTH_DOMAIN
+- VITE_FIREBASE_PROJECT_ID
+- VITE_FIREBASE_STORAGE_BUCKET
+- VITE_FIREBASE_MESSAGING_SENDER_ID
+- VITE_FIREBASE_APP_ID
+
+Server-side env uses values like:
+- FIREBASE_PROJECT_ID
+- FIREBASE_CLIENT_EMAIL
+- FIREBASE_PRIVATE_KEY
+
+Critical instruction:
+- Never hardcode secrets into source code
+- Never print or expose private keys, service account values, or sensitive env data in generated output
+- If referencing env configuration, describe names only, not secret values
+
+KNOWN PRODUCT / ENGINEERING REALITY
+
+This is not a toy starter. It is a large, actively shaped ERP app with:
+- Broad route coverage
+- Many interconnected modules
+- Mixed maturity across modules
+- Shared service layers
+- Ongoing backend migration
+
+Therefore, when making changes:
+- Reuse shared layout and service patterns
+- Prefer centralized solutions over page-by-page duplication
+- Respect role protections
+- Preserve mobile behavior
+- Avoid breaking route expectations
+- Assume other parts of the app depend on current type shapes
+
+EXPECTED ENGINEERING BEHAVIOR FOR FUTURE WORK
+
+When asked to add or modify features in this project, follow these rules:
+
+1. Understand first
+- Inspect relevant route, layout, config, store, and service files before editing
+- Trace whether the change belongs in a shared layout, shared service, or individual page
+
+2. Prefer shared solutions
+- If a feature should appear everywhere, implement it in shared layout/navbar/provider layers
+- If a feature is cross-module, centralize it
+- If a role needs its own workspace, give it a dedicated route space, role-aware redirect handling, sidebar, and mobile nav
+
+3. Respect current architecture
+- Use React + TypeScript + Tailwind patterns already present
+- Preserve route guards and role-aware access
+- Keep state consistent with Zustand and existing service patterns
+- Reuse the current school-scoped collection approach unless a broader migration is explicitly requested
+
+4. Be careful with migration-sensitive logic
+- Auth/data code may have Firebase and legacy relational assumptions mixed together
+- Do not remove migration safety without a specific plan
+
+5. Maintain UX quality
+- Keep the UI polished and production-like
+- Preserve responsiveness
+- Avoid crude or placeholder-looking additions
+
+6. Verify work
+- Build after changes when feasible
+- Watch for TypeScript issues
+- Do not claim unsupported language or backend behavior as complete if it is not
+- For role changes, verify redirects, protected routes, navbar behavior, sidebar visibility, and mobile navigation
+
+WHAT AN AI OR DEVELOPER SHOULD KNOW BEFORE BUILDING NEW FEATURES
+
+If you are asked to build new features, first determine:
+- Which role(s) should see the feature
+- Whether the feature is school-scoped or super-admin-scoped
+- Whether it needs shared layout placement
+- Whether data should come from Firebase client, admin API, or existing service abstractions
+- Whether mobile layout needs a separate treatment
+- Whether the feature should integrate with notifications, audit logs, or subscription rules
+
+When adding a new page:
+- Confirm route placement
+- Confirm sidebar placement
+- Confirm role visibility
+- Confirm service/data source
+- Confirm loading/error/empty states
+- Confirm mobile behavior
+
+When editing auth or backend flows:
+- Confirm session restoration impact
+- Confirm redirect impact
+- Confirm bootstrap admin behavior
+- Confirm super-admin vs school role separation
+
+WHEN WRITING CODE FOR THIS PROJECT, FOLLOW THESE STYLE EXPECTATIONS
+
+- Use TypeScript cleanly and keep types explicit when helpful
+- Reuse existing UI components where practical
+- Keep Tailwind class usage aligned with existing patterns
+- Prefer small, understandable changes over unnecessary rewrites
+- Add comments only where logic is non-obvious
+- Avoid introducing new libraries unless clearly justified
+
+WHEN WRITING AI TASK PROMPTS FOR THIS PROJECT, INCLUDE
+
+- The role scope affected
+- The route(s) affected
+- The service/data source involved
+- Mobile and desktop expectations
+- Whether the change should be shared across all dashboards or only one area
+- Whether Firebase migration concerns are relevant
+- Verification expectations such as npm run build
+
+MASTER IMPLEMENTATION INSTRUCTION
+
+Treat INDDIA ERP as a real multi-tenant school operations platform with a super-admin control plane and school-scoped workspaces. Every change should preserve role safety, operational clarity, responsive design, and migration-aware backend behavior. Favor maintainable shared architecture over one-off patches.
+
+CURRENT SPECIAL NOTE ABOUT LANGUAGES
+
+The project currently includes a global language icon in the top-right area using a Google Translate bridge. The full menu includes many Indian languages, but only languages supported by Google Translate are actually selectable for translation; others appear as unavailable. The Google Translate top strip/banner must remain hidden. If replacing this later with a first-class internal i18n system, preserve the same UX placement and global scope.
+
+OUTPUT EXPECTATION IF THIS PROMPT IS USED
+
+Any assistant or developer using this prompt should:
+- Understand the product deeply
+- Avoid naive assumptions
+- Work within the existing architecture
+- Implement changes in the correct shared or scoped layers
+- Keep the app production-oriented
+- Protect secrets and env values
+- Verify changes with a build when possible
+
+END OF MASTER PROMPT

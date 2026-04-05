@@ -4,11 +4,13 @@ import MobileBottomNav from "./MobileBottomNav";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
 import TeacherTimetableAlerts from "./TeacherTimetableAlerts";
+import { isDashboardLikePath } from "../../utils/navigation";
 
 export const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const isSuperAdminArea = location.pathname.startsWith("/super-admin");
+  const isPrincipalArea = location.pathname.startsWith("/principal");
 
   if (isSuperAdminArea) {
     return (
@@ -27,7 +29,7 @@ export const DashboardLayout = () => {
 
   return (
     <div className="erp-shell-bg mobile-app-shell min-h-screen overflow-x-hidden text-slate-900">
-      <TeacherTimetableAlerts />
+      {!isPrincipalArea && isDashboardLikePath(location.pathname) ? <TeacherTimetableAlerts /> : null}
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="min-h-screen md:ml-[304px]">
         <Navbar onMenuClick={() => setSidebarOpen(true)} />

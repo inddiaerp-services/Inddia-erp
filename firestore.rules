@@ -6,12 +6,13 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Current app migration fix:
-    // allow authenticated access to Firestore so pages stop failing with
-    // "Missing or insufficient permissions." while the rest of the Firebase
-    // data layer is being finished.
+    function isPrincipal() {
+      return isSignedIn() && request.auth.token.role == "principal";
+    }
+
     match /{document=**} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && !isPrincipal();
     }
   }
 }

@@ -62,6 +62,7 @@ const normalizeRole = (role: string | null | undefined): AppRole => {
 
   if (value === ROLES.SUPER_ADMIN || value === "superadmin" || value === "platform_owner") return ROLES.SUPER_ADMIN;
   if (value === ROLES.ADMIN || value === "school_admin") return ROLES.ADMIN;
+  if (value === ROLES.PRINCIPAL) return ROLES.PRINCIPAL;
   if (value === ROLES.PARENT) return ROLES.PARENT;
   if (value === ROLES.STUDENT) return ROLES.STUDENT;
   if (["staff", "teacher", "hr", "accounts", "transport", "admission"].includes(value)) return ROLES.STAFF;
@@ -448,7 +449,12 @@ export const loginStaff = async (email: string, password: string) => {
 
   if (
     !result.role ||
-    (result.role !== ROLES.ADMIN && result.role !== ROLES.STAFF && result.role !== ROLES.SUPER_ADMIN)
+    (
+      result.role !== ROLES.ADMIN &&
+      result.role !== ROLES.PRINCIPAL &&
+      result.role !== ROLES.STAFF &&
+      result.role !== ROLES.SUPER_ADMIN
+    )
   ) {
     throw new Error("This account is not configured as a staff login.");
   }

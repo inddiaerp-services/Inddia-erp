@@ -56,6 +56,13 @@ const stackIcon = (
   </svg>
 );
 
+const shieldIcon = (
+  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+    <path d="m12 3 7 3v6c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V6l7-3Z" />
+    <path d="m9.5 12 1.7 1.7 3.3-3.7" />
+  </svg>
+);
+
 const currencyIcon = (
   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
     <path d="M12 2v20" />
@@ -81,6 +88,16 @@ const getItemsForRole = (role: string | null): MobileNavItem[] => {
       { label: "Timetable", path: "/dashboard/timetable", icon: calendarIcon },
       { label: "Alerts", path: "/dashboard/notifications", icon: bellIcon },
       { label: "Profile", path: "/dashboard/profile", icon: userIcon },
+    ];
+  }
+
+  if (role === ROLES.PRINCIPAL) {
+    return [
+      { label: "Home", path: "/principal/dashboard", icon: homeIcon },
+      { label: "Analytics", path: "/principal/analytics", icon: chartIcon },
+      { label: "Students", path: "/principal/students", icon: stackIcon },
+      { label: "Approvals", path: "/principal/approvals", icon: bellIcon },
+      { label: "More", path: "/principal/profile", icon: shieldIcon },
     ];
   }
 
@@ -118,7 +135,7 @@ export const MobileBottomNav = () => {
   const location = useLocation();
   const items = getItemsForRole(role);
 
-  if (!location.pathname.startsWith("/dashboard") && !location.pathname.startsWith("/super-admin")) {
+  if (!location.pathname.startsWith("/dashboard") && !location.pathname.startsWith("/super-admin") && !location.pathname.startsWith("/principal")) {
     return null;
   }
 

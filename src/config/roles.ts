@@ -1,6 +1,7 @@
 export const ROLES = {
   SUPER_ADMIN: "super_admin",
   ADMIN: "admin",
+  PRINCIPAL: "principal",
   PARENT: "parent",
   STAFF: "staff",
   STUDENT: "student",

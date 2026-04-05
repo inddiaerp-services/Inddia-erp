@@ -95,6 +95,16 @@ import {
   SchoolUsageDashboardPage,
   SuperAdminBillingRequestsPage,
 } from "./pages/dashboard/SchoolBilling";
+import {
+  PrincipalAnalyticsPage,
+  PrincipalApprovalsPage,
+  PrincipalAttendancePage,
+  PrincipalDashboardPage,
+  PrincipalDisciplinePage,
+  PrincipalStaffPage,
+  PrincipalStudentsPage,
+} from "./pages/principal/PrincipalPages";
+import { getDefaultRouteForRole } from "./utils/navigation";
 
 const PublicRoute = () => {
   const { user, loading } = authStore();
@@ -107,7 +117,7 @@ const PublicRoute = () => {
     );
   }
 
-  return user ? <Navigate to={user.role === ROLES.SUPER_ADMIN ? "/super-admin/dashboard" : "/dashboard/home"} replace /> : <Outlet />;
+  return user ? <Navigate to={getDefaultRouteForRole(user.role)} replace /> : <Outlet />;
 };
 
 function App() {
@@ -246,6 +256,21 @@ function App() {
               <Route path="storage" element={<SuperAdminStoragePage />} />
               <Route path="storage/:schoolId/edit" element={<SuperAdminStorageEditPage />} />
               <Route path="audit-logs" element={<SuperAdminAuditLogsPage />} />
+            </Route>
+          </Route>
+
+          <Route element={<RoleProtectedRoute allowedRoles={[ROLES.PRINCIPAL]} />}>
+            <Route path="/principal" element={<DashboardLayout />}>
+              <Route index element={<Navigate to="/principal/dashboard" replace />} />
+              <Route path="dashboard" element={<PrincipalDashboardPage />} />
+              <Route path="analytics" element={<PrincipalAnalyticsPage />} />
+              <Route path="students" element={<PrincipalStudentsPage />} />
+              <Route path="staff" element={<PrincipalStaffPage />} />
+              <Route path="attendance" element={<PrincipalAttendancePage />} />
+              <Route path="approvals" element={<PrincipalApprovalsPage />} />
+              <Route path="discipline" element={<PrincipalDisciplinePage />} />
+              <Route path="profile" element={<ProfilePage />} />
+              <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Route>
 

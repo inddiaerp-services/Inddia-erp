@@ -14,6 +14,7 @@ type SidebarProps = {
 const roleLabels = {
   [ROLES.SUPER_ADMIN]: "Super Admin",
   [ROLES.ADMIN]: "School Admin",
+  [ROLES.PRINCIPAL]: "Principal",
   [ROLES.PARENT]: "Parent",
   [ROLES.STAFF]: "Teacher",
   [ROLES.STUDENT]: "Student",
@@ -23,6 +24,19 @@ const sectionDefinitions = [
   {
     title: "Overview",
     match: (path: string) => ["/dashboard/home", "/dashboard/analytics", "/dashboard/hr", "/dashboard/accounts", "/dashboard/transport", "/dashboard/admission"].includes(path),
+  },
+  {
+    title: "Leadership",
+    match: (path: string) =>
+      ["/principal/dashboard", "/principal/analytics", "/principal/attendance", "/principal/approvals", "/principal/discipline"].includes(path),
+  },
+  {
+    title: "Community",
+    match: (path: string) => ["/principal/students", "/principal/staff"].includes(path),
+  },
+  {
+    title: "Account",
+    match: (path: string) => ["/principal/profile", "/principal/settings"].includes(path),
   },
   {
     title: "Academic",
@@ -108,6 +122,20 @@ export const Sidebar = ({ open, onClose }: SidebarProps) => {
         { icon: "FE", label: "Payments", path: "/super-admin/payments", description: "Review all platform payments.", roles: [ROLES.SUPER_ADMIN] },
         { icon: "DR", label: "Storage", path: "/super-admin/storage", description: "Track school storage usage and limits.", roles: [ROLES.SUPER_ADMIN] },
         { icon: "LG", label: "Audit Logs", path: "/super-admin/audit-logs", description: "Review super admin action history.", roles: [ROLES.SUPER_ADMIN] },
+      ];
+    }
+
+    if (role === ROLES.PRINCIPAL) {
+      return [
+        { icon: "DB", label: "Dashboard", path: "/principal/dashboard", description: "Executive overview of attendance, performance, and approvals.", roles: [ROLES.PRINCIPAL] },
+        { icon: "AN", label: "Analytics", path: "/principal/analytics", description: "School-wide attendance and academic trend analysis.", roles: [ROLES.PRINCIPAL] },
+        { icon: "ST", label: "Students", path: "/principal/students", description: "View student records, class groups, and performance indicators.", roles: [ROLES.PRINCIPAL] },
+        { icon: "SF", label: "Staff", path: "/principal/staff", description: "Review staff directory, workload, and status visibility.", roles: [ROLES.PRINCIPAL] },
+        { icon: "AT", label: "Attendance", path: "/principal/attendance", description: "Monitor class-wise attendance performance and risk areas.", roles: [ROLES.PRINCIPAL] },
+        { icon: "LV", label: "Approvals", path: "/principal/approvals", description: "Handle leave and admission approval decisions.", roles: [ROLES.PRINCIPAL] },
+        { icon: "LG", label: "Discipline", path: "/principal/discipline", description: "Review low-attendance and student concern signals.", roles: [ROLES.PRINCIPAL] },
+        { icon: "PF", label: "Profile", path: "/principal/profile", description: "View principal account details and access context.", roles: [ROLES.PRINCIPAL] },
+        { icon: "SE", label: "Settings", path: "/principal/settings", description: "Review principal session and workspace settings.", roles: [ROLES.PRINCIPAL] },
       ];
     }
 

@@ -8,9 +8,9 @@ import DataTable from "../../components/ui/DataTable";
 import { AdminPageHeader, CompactMetricCard } from "./adminPageUtils";
 import {
   bulkImportStaff,
-  createStaff,
   deleteAllStaff,
   deleteStaff,
+  createStaffWithRole,
   getSelectableSubjects,
   listStaff,
   previewBulkImportStaff,
@@ -97,6 +97,8 @@ export const StaffPage = () => {
   const totalTeachers = staff.filter((member) => member.role === "Teacher").length;
   const totalCoordinators = staff.filter((member) => member.isClassCoordinator).length;
   const canDeleteAllStaff = role === ROLES.ADMIN;
+  const canManageStaffRecords = role === ROLES.ADMIN;
+  const isPrincipalRole = form.role.trim().toLowerCase() === "principal";
 
   const loadData = async () => {
     setLoading(true);
@@ -124,12 +126,22 @@ export const StaffPage = () => {
   };
 
   const openCreate = () => {
+    if (!canManageStaffRecords) {
+      setError("Only school admin can create staff records.");
+      return;
+    }
+
     setForm(emptyForm);
     setFormError("");
     setModal({ open: true, mode: "create", staff: null });
   };
 
   const openEdit = (member: StaffRecord) => {
+    if (!canManageStaffRecords) {
+      setError("Principal can view staff records only.");
+      return;
+    }
+
     setForm({
       name: member.name,
       email: member.email,
@@ -154,6 +166,13 @@ export const StaffPage = () => {
 
       if (key === "role" && value !== "Teacher") {
         next.subjectId = "";
+      }
+
+      if (key === "role" && String(value).trim().toLowerCase() === "principal") {
+        next.subjectId = "";
+        next.assignedClass = "";
+        next.assignedSection = "";
+        next.isClassCoordinator = false;
       }
 
       return next;
@@ -197,7 +216,7 @@ export const StaffPage = () => {
       };
 
       if (modal.mode === "create") {
-        await createStaff(payload);
+        await createStaffWithRole(payload);
       } else if (modal.staff) {
         await updateStaff(modal.staff.id, modal.staff.userId, payload);
       }
@@ -213,6 +232,11 @@ export const StaffPage = () => {
   };
 
   const handleDelete = async (member: StaffRecord) => {
+    if (!canManageStaffRecords) {
+      setError("Principal can view staff records only.");
+      return;
+    }
+
     if (!window.confirm(`Delete staff account for "${member.name}"?`)) return;
     try {
       await deleteStaff(member.id);
@@ -343,7 +367,7 @@ export const StaffPage = () => {
                 {deletingAll ? "Deleting Staff..." : "Delete All Staff"}
               </Button>
             ) : null}
-            <Button onClick={openCreate}>+ Add Staff</Button>
+            {canManageStaffRecords ? <Button onClick={openCreate}>+ Add Staff</Button> : null}
           </div>
         }
       />
@@ -448,7 +472,7 @@ export const StaffPage = () => {
 
       <DataTable
         title="Staff Directory"
-        description="Shows only the main staff overview. Open a staff member to view complete profile and employment details."
+        description={canManageStaffRecords ? "Shows only the main staff overview. Open a staff member to view complete profile and employment details." : "Principal view is read-only. Review the staff directory, roles, and coverage without editing records."}
         data={filteredStaff}
         getRowId={(member) => member.id}
         loading={loading}
@@ -517,26 +541,34 @@ export const StaffPage = () => {
         ]}
         renderActions={(member) => (
           <div className="inline-flex flex-nowrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 whitespace-nowrap">
-            <Link
-              to={`/dashboard/staff/${member.id}`}
-              className="inline-flex min-h-9 items-center justify-center rounded-xl border border-brand-200 bg-white px-3 py-2 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 whitespace-nowrap"
-            >
-              View
-            </Link>
-            <button
-              type="button"
-              onClick={() => openEdit(member)}
-              className="inline-flex min-h-9 items-center justify-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 whitespace-nowrap"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDelete(member)}
-              className="inline-flex min-h-9 items-center justify-center rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 whitespace-nowrap"
-            >
-              Delete
-            </button>
+            {canManageStaffRecords ? (
+              <>
+                <Link
+                  to={`/dashboard/staff/${member.id}`}
+                  className="inline-flex min-h-9 items-center justify-center rounded-xl border border-brand-200 bg-white px-3 py-2 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 whitespace-nowrap"
+                >
+                  View
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => openEdit(member)}
+                  className="inline-flex min-h-9 items-center justify-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 whitespace-nowrap"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(member)}
+                  className="inline-flex min-h-9 items-center justify-center rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 whitespace-nowrap"
+                >
+                  Delete
+                </button>
+              </>
+            ) : (
+              <span className="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 whitespace-nowrap">
+                View Only
+              </span>
+            )}
           </div>
         )}
         pageSize={10}
@@ -665,6 +697,11 @@ export const StaffPage = () => {
                   ))}
                 </select>
               </label>
+              {isPrincipalRole ? (
+                <div className="md:col-span-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                  Designation is set automatically to Principal. Subject, class assignment, and timetable-specific fields are not required for this role.
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -691,7 +728,9 @@ export const StaffPage = () => {
               </div>
             ) : (
               <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">
-                This staff role does not need a subject assignment.
+                {isPrincipalRole
+                  ? "Principal accounts are leadership profiles and do not require subject or timetable assignments."
+                  : "This staff role does not need a subject assignment."}
               </div>
             )}
 

@@ -11,6 +11,8 @@ export type StaffRecord = {
   mobileNumber: string;
   photoUrl: string | null;
   role: string;
+  designation?: string | null;
+  status?: string | null;
   dateOfJoining: string | null;
   monthlySalary: number | null;
   subjectId: string | null;

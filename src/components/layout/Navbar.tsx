@@ -7,6 +7,7 @@ import Button from "../ui/Button";
 import { ROLES } from "../../config/roles";
 import type { NotificationRecord } from "../../types/admin";
 import LanguageSwitcher from "./LanguageSwitcher";
+import { getDefaultRouteForRole, isDashboardLikePath } from "../../utils/navigation";
 
 type NavbarProps = {
   onMenuClick?: () => void;
@@ -32,6 +33,7 @@ const LogoutIcon = () => (
 const roleLabels = {
   [ROLES.SUPER_ADMIN]: "Super Admin",
   [ROLES.ADMIN]: "Admin",
+  [ROLES.PRINCIPAL]: "Principal",
   [ROLES.PARENT]: "Parent",
   [ROLES.STAFF]: "Teacher",
   [ROLES.STUDENT]: "Student",
@@ -42,7 +44,8 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
   const location = useLocation();
   const { user, role, logout, setLoading, school } = authStore();
   const isSuperAdminArea = location.pathname.startsWith("/super-admin");
-  const isDashboard = location.pathname.startsWith("/dashboard") || isSuperAdminArea;
+  const isPrincipalArea = location.pathname.startsWith("/principal");
+  const isDashboard = isDashboardLikePath(location.pathname);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
   const [openNotifications, setOpenNotifications] = useState(false);
@@ -98,7 +101,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
     return () => {
       active = false;
     };
-  }, [isDashboard, isSuperAdminArea, location.pathname, role, user?.id]);
+  }, [isDashboard, isSuperAdminArea, role, user?.id]);
 
   useEffect(() => {
     setOpenNotifications(false);
@@ -120,11 +123,13 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
     setOpenNotifications(false);
 
     navigate(
-      notification.relatedFeeId
-        ? `/dashboard/fees/${notification.relatedFeeId}`
-        : notification.relatedLeaveId
-          ? `/dashboard/leave-impact/${notification.relatedLeaveId}?notificationId=${notification.id}`
-          : "/dashboard/notifications",
+      isPrincipalArea
+        ? "/principal/approvals"
+        : notification.relatedFeeId
+          ? `/dashboard/fees/${notification.relatedFeeId}`
+          : notification.relatedLeaveId
+            ? `/dashboard/leave-impact/${notification.relatedLeaveId}?notificationId=${notification.id}`
+            : "/dashboard/notifications",
     );
   };
 
@@ -157,7 +162,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
           <div className="flex items-center gap-3">
             <LanguageSwitcher dark />
             {user ? (
-              <Link to={user.role === ROLES.SUPER_ADMIN ? "/super-admin/dashboard" : "/dashboard/home"}>
+              <Link to={getDefaultRouteForRole(user.role)}>
                 <Button className="rounded-full px-6">Open Dashboard</Button>
               </Link>
             ) : (
@@ -266,7 +271,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
                     <p className="text-sm font-semibold text-slate-900">Notifications</p>
                     <p className="text-xs text-slate-500">{unreadCount} unread</p>
                   </div>
-                  <Link to="/dashboard/notifications" className="text-xs font-semibold text-blue-700">
+                  <Link to={isPrincipalArea ? "/principal/approvals" : "/dashboard/notifications"} className="text-xs font-semibold text-blue-700">
                     View all
                   </Link>
                 </div>

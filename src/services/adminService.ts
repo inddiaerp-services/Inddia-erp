@@ -120,8 +120,11 @@ type ClassRow = {
 type StaffRow = {
   id: string;
   user_id: string;
+  school_id?: string | null;
   name: string | null;
   role: string | null;
+  designation?: string | null;
+  status?: string | null;
   mobile_number: string | null;
   date_of_joining: string | null;
   monthly_salary: number | string | null;
@@ -585,8 +588,11 @@ const mapFirebaseParentRow = (id: string, data: Record<string, unknown>): Parent
 const mapFirebaseStaffRow = (id: string, data: Record<string, unknown>): StaffRow => ({
   id,
   user_id: getFirebaseString(data, ["userId", "user_id"]) ?? "",
+  school_id: getFirebaseString(data, ["schoolId", "school_id"]),
   name: getFirebaseString(data, ["name"]),
   role: getFirebaseString(data, ["role"]),
+  designation: getFirebaseString(data, ["designation"]),
+  status: getFirebaseString(data, ["status"]),
   mobile_number: getFirebaseString(data, ["mobileNumber", "mobile_number"]),
   date_of_joining: getFirebaseString(data, ["dateOfJoining", "date_of_joining"]),
   monthly_salary: getFirebaseField<number | string | null>(data, ["monthlySalary", "monthly_salary"]) ?? null,
@@ -738,6 +744,86 @@ const getFirestoreSchoolScopedDocs = async (collectionName: string, schoolId: st
   }
 };
 
+type FirestoreQueryFilter = {
+  field: string;
+  value: unknown;
+};
+
+const normalizeFirestoreFilterValue = (value: unknown) => {
+  if (value == null) return null;
+  if (typeof value === "string") return value.trim();
+  return value;
+};
+
+const doesFirestoreDocMatchFilters = (
+  data: Record<string, unknown>,
+  filters: FirestoreQueryFilter[],
+) =>
+  filters.every(
+    (filter) =>
+      normalizeFirestoreFilterValue(data[filter.field]) === normalizeFirestoreFilterValue(filter.value),
+  );
+
+const getFirestoreDocsByFilterVariants = async (
+  collectionName: string,
+  variants: FirestoreQueryFilter[][],
+  options?: { limit?: number; schoolId?: string | null },
+) => {
+  if (!firebaseDb) return [];
+
+  let shouldUseServerFallback = false;
+
+  for (const filters of variants) {
+    try {
+      const baseConstraints = filters.map((filter) => firebaseWhere(filter.field, "==", filter.value));
+      const collectionRef = firebaseCollection(firebaseDb, collectionName);
+      const scopedQuery = firebaseQuery(collectionRef, ...baseConstraints);
+      const finalQuery =
+        typeof options?.limit === "number" ? firebaseQuery(scopedQuery, limit(options.limit)) : scopedQuery;
+
+      const snapshot = await firebaseGetDocs(finalQuery);
+
+      if (!snapshot.empty) {
+        return snapshot.docs
+          .map((item) => ({ id: item.id, data: item.data() as Record<string, unknown> }))
+          .filter((item) => !isFirebaseSystemMetaDoc(item.data));
+      }
+    } catch (error) {
+      if (isFirebaseQuotaError(error)) {
+        throw error;
+      }
+      if (!isFirebasePermissionError(error)) {
+        throw error;
+      }
+      shouldUseServerFallback = true;
+      break;
+    }
+  }
+
+  if (!shouldUseServerFallback || !options?.schoolId) {
+    return [];
+  }
+
+  const docs = await listFirestoreCollectionThroughServer(collectionName, options.schoolId);
+  const matched = docs.filter((item) =>
+    variants.some((filters) => doesFirestoreDocMatchFilters(item.data, filters)),
+  );
+
+  return typeof options.limit === "number" ? matched.slice(0, options.limit) : matched;
+};
+
+const getFirstFirestoreDocByFilterVariants = async (
+  collectionName: string,
+  variants: FirestoreQueryFilter[][],
+  options?: { schoolId?: string | null },
+) => {
+  const docs = await getFirestoreDocsByFilterVariants(collectionName, variants, {
+    limit: 1,
+    schoolId: options?.schoolId,
+  });
+  return docs[0] ?? null;
+};
+
 const getFirestoreSchoolScopedCount = async (collectionName: string, schoolId: string) => {
   if (!firebaseDb) return 0;
 
@@ -778,6 +864,9 @@ const getFirestoreDocument = async (collectionName: string, id: string) => {
 };
 
 const getCurrentSchoolId = () => authStore.getState().school?.id ?? authStore.getState().user?.schoolId ?? null;
+
+const isPrincipalStaffRole = (role: string | null | undefined) =>
+  String(role ?? "").trim().toLowerCase() === "principal";
 
 const isMissingSchoolForeignKeyError = (message: string) => {
   const normalized = message.toLowerCase();
@@ -850,6 +939,17 @@ const invalidateSchoolScopedCache = (namespaces?: string[]) => {
   namespaces.forEach((namespace) => {
     schoolScopedCache.delete(getSchoolCacheKey(namespace, schoolId));
   });
+};
+
+const invalidateSchoolScopedCacheByPrefix = (prefixes: string[]) => {
+  const schoolId = getCurrentSchoolId();
+  if (!schoolId || prefixes.length === 0) return;
+
+  Array.from(schoolScopedCache.keys())
+    .filter((key) =>
+      prefixes.some((prefix) => key.startsWith(`${schoolId}::${prefix}`)),
+    )
+    .forEach((key) => schoolScopedCache.delete(key));
 };
 
 const buildDateRange = (startDate: string, endDate: string) => {
@@ -2205,6 +2305,8 @@ export const listStaff = async (): Promise<StaffRecord[]> => {
         mobileNumber: item.mobile_number ?? usersMap.get(item.user_id)?.phone ?? "",
         photoUrl: usersMap.get(item.user_id)?.photo_url ?? null,
         role: item.role ?? "Teacher",
+        designation: item.designation ?? null,
+        status: item.status ?? "active",
         dateOfJoining: item.date_of_joining,
         monthlySalary:
           item.monthly_salary == null || item.monthly_salary === ""
@@ -2222,7 +2324,7 @@ export const listStaff = async (): Promise<StaffRecord[]> => {
     const schoolId = requireCurrentSchoolId();
     const { data, error } = await client
       .from("staff")
-      .select("id, user_id, name, role, mobile_number, date_of_joining, monthly_salary, subject_id, is_class_coordinator, assigned_class, assigned_section")
+      .select("id, user_id, school_id, name, role, designation, status, mobile_number, date_of_joining, monthly_salary, subject_id, is_class_coordinator, assigned_class, assigned_section")
       .eq("school_id", schoolId)
       .order("name");
 
@@ -2242,6 +2344,8 @@ export const listStaff = async (): Promise<StaffRecord[]> => {
       mobileNumber: item.mobile_number ?? usersMap.get(item.user_id)?.phone ?? "",
       photoUrl: usersMap.get(item.user_id)?.photo_url ?? null,
       role: item.role ?? "Teacher",
+      designation: item.designation ?? null,
+      status: item.status ?? "active",
       dateOfJoining: item.date_of_joining,
       monthlySalary:
         item.monthly_salary == null || item.monthly_salary === ""
@@ -2292,6 +2396,8 @@ export const getStaffDetail = async (staffId: string) => {
       mobileNumber: staffRow.mobile_number ?? usersMap.get(staffRow.user_id)?.phone ?? "",
       photoUrl: usersMap.get(staffRow.user_id)?.photo_url ?? null,
       role: staffRow.role ?? "Teacher",
+      designation: staffRow.designation ?? null,
+      status: staffRow.status ?? "active",
       dateOfJoining: staffRow.date_of_joining,
       monthlySalary:
         staffRow.monthly_salary == null || staffRow.monthly_salary === ""
@@ -2309,7 +2415,7 @@ export const getStaffDetail = async (staffId: string) => {
   const schoolId = requireCurrentSchoolId();
   const { data, error } = await client
     .from("staff")
-    .select("id, user_id, name, role, mobile_number, date_of_joining, monthly_salary, subject_id, is_class_coordinator, assigned_class, assigned_section")
+    .select("id, user_id, school_id, name, role, designation, status, mobile_number, date_of_joining, monthly_salary, subject_id, is_class_coordinator, assigned_class, assigned_section")
     .eq("id", staffId)
     .eq("school_id", schoolId)
     .single();
@@ -2332,6 +2438,8 @@ export const getStaffDetail = async (staffId: string) => {
     mobileNumber: staffRow.mobile_number ?? usersMap.get(staffRow.user_id)?.phone ?? "",
     photoUrl: usersMap.get(staffRow.user_id)?.photo_url ?? null,
     role: staffRow.role ?? "Teacher",
+    designation: staffRow.designation ?? null,
+    status: staffRow.status ?? "active",
     dateOfJoining: staffRow.date_of_joining,
     monthlySalary:
       staffRow.monthly_salary == null || staffRow.monthly_salary === ""
@@ -2345,12 +2453,52 @@ export const getStaffDetail = async (staffId: string) => {
   } satisfies StaffRecord;
 };
 
-export const createStaff = async (values: StaffFormValues) => {
+const ensureSinglePrincipalPerSchool = async (existingStaffId?: string) => {
+  if (firebaseDb) {
+    const schoolId = requireCurrentSchoolId();
+    const principal = await getFirstFirestoreDocByFilterVariants(
+      "staff",
+      [
+        [
+          { field: "schoolId", value: schoolId },
+          { field: "role", value: "principal" },
+        ],
+        [
+          { field: "school_id", value: schoolId },
+          { field: "role", value: "principal" },
+        ],
+      ],
+      { schoolId },
+    );
+
+    if (principal && principal.id !== existingStaffId) {
+      throw new Error("Principal already exists for this school");
+    }
+    return;
+  }
+
+  const principal = (await listStaff()).find(
+    (member) => isPrincipalStaffRole(member.role) && member.id !== existingStaffId,
+  );
+
+  if (principal) {
+    throw new Error("Principal already exists for this school");
+  }
+};
+
+export const createStaffWithRole = async (values: StaffFormValues) => {
+  if (isPrincipalStaffRole(values.role)) {
+    await ensureSinglePrincipalPerSchool();
+  }
+
   const staff = await invokeAdminAction<StaffRecord>("create_staff", values);
   invalidateSchoolScopedCache(["staff", "classes"]);
+  invalidateSchoolScopedCacheByPrefix(["staff-by-user:", "notifications:"]);
   await logAuditEvent("CREATE", "STAFF", staff.id);
   return staff;
 };
+
+export const createStaff = createStaffWithRole;
 
 export const bulkImportStaff = async (
   rows: Record<string, unknown>[],
@@ -2377,12 +2525,18 @@ export const previewBulkImportStaff = async (
 export const deleteAllStaff = async () => {
   await invokeAdminAction<{ deleted: number }>("delete_all_staff", {});
   invalidateSchoolScopedCache(["staff", "classes"]);
+  invalidateSchoolScopedCacheByPrefix(["staff-by-user:", "notifications:"]);
   await logAuditEvent("DELETE", "STAFF_BULK_DELETE");
 };
 
 export const updateStaff = async (staffId: string, userId: string, values: StaffFormValues) => {
+  if (isPrincipalStaffRole(values.role)) {
+    await ensureSinglePrincipalPerSchool(staffId);
+  }
+
   const staff = await invokeAdminAction<StaffRecord>("update_staff", { id: staffId, userId, ...values });
   invalidateSchoolScopedCache(["staff", "classes"]);
+  invalidateSchoolScopedCacheByPrefix(["staff-by-user:", "notifications:"]);
   await logAuditEvent("UPDATE", "STAFF", staff.id);
   return staff;
 };
@@ -2392,6 +2546,7 @@ export const deleteStaff = async (staffId: string) =>
     try {
       await invokeAdminAction<void>("delete_staff", { id: staffId });
       invalidateSchoolScopedCache(["staff", "classes"]);
+      invalidateSchoolScopedCacheByPrefix(["staff-by-user:", "notifications:"]);
       await logAuditEvent("DELETE", "STAFF", staffId);
       return;
     } catch (error) {
@@ -2433,6 +2588,7 @@ export const deleteStaff = async (staffId: string) =>
     }
 
     invalidateSchoolScopedCache(["staff", "classes"]);
+    invalidateSchoolScopedCacheByPrefix(["staff-by-user:", "notifications:"]);
     await logAuditEvent("DELETE", "STAFF", staffId);
   })();
 
@@ -2502,13 +2658,191 @@ export const getStudentsCount = async (): Promise<number> => {
 };
 
 export const getStudentByUserId = async (userId: string) => {
-  const students = await listStudents();
-  return students.find((student) => student.userId === userId) ?? null;
+  return readSchoolScopedCache(`student-by-user:${userId}`, async () => {
+    if (firebaseDb) {
+      const schoolId = requireCurrentSchoolId();
+      const snapshot = await getFirstFirestoreDocByFilterVariants(
+        "students",
+        [
+          [
+            { field: "schoolId", value: schoolId },
+            { field: "userId", value: userId },
+          ],
+          [
+            { field: "schoolId", value: schoolId },
+            { field: "user_id", value: userId },
+          ],
+          [
+            { field: "school_id", value: schoolId },
+            { field: "userId", value: userId },
+          ],
+          [
+            { field: "school_id", value: schoolId },
+            { field: "user_id", value: userId },
+          ],
+        ],
+        { schoolId },
+      );
+
+      if (!snapshot) {
+        return null;
+      }
+
+      const studentRow = mapFirebaseStudentRow(snapshot.id, snapshot.data);
+      const usersMap = await getUsersMap([studentRow.user_id]);
+      const parentsMap = await getParentsMap(
+        studentRow.parent_id ? [studentRow.parent_id] : [],
+      );
+      const parent = studentRow.parent_id ? parentsMap.get(studentRow.parent_id) ?? null : null;
+
+      return mapStudentRecord(studentRow, usersMap.get(studentRow.user_id), parent);
+    }
+
+    const client = requireDatabaseClient();
+    const schoolId = requireCurrentSchoolId();
+    const { data, error } = await client
+      .from("students")
+      .select("id, user_id, school_id, name, student_code, class, section, admission_date, discount_fee, aadhar_number, date_of_birth, birth_id, is_orphan, gender, caste, osc, identification_mark, previous_school, region, blood_group, previous_board_roll_no, address, parent_id")
+      .eq("school_id", schoolId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+
+    const studentRow = data as StudentRow;
+    const usersMap = await getUsersMap([studentRow.user_id]);
+    const parentsMap = await getParentsMap(
+      studentRow.parent_id ? [studentRow.parent_id] : [],
+    );
+    const parent = studentRow.parent_id ? parentsMap.get(studentRow.parent_id) ?? null : null;
+
+    return mapStudentRecord(studentRow, usersMap.get(studentRow.user_id), parent);
+  });
 };
 
 export const getChildrenByParentUserId = async (parentUserId: string) => {
-  const students = await listStudents();
-  return students.filter((student) => student.parentUserId === parentUserId);
+  return readSchoolScopedCache(`children-by-parent-user:${parentUserId}`, async () => {
+    if (firebaseDb) {
+      const schoolId = requireCurrentSchoolId();
+      const parentDocs = await getFirestoreDocsByFilterVariants(
+        "parents",
+        [
+          [
+            { field: "schoolId", value: schoolId },
+            { field: "userId", value: parentUserId },
+          ],
+          [
+            { field: "schoolId", value: schoolId },
+            { field: "user_id", value: parentUserId },
+          ],
+          [
+            { field: "school_id", value: schoolId },
+            { field: "userId", value: parentUserId },
+          ],
+          [
+            { field: "school_id", value: schoolId },
+            { field: "user_id", value: parentUserId },
+          ],
+        ],
+        { schoolId },
+      );
+
+      if (parentDocs.length === 0) {
+        return [];
+      }
+
+      const parentIds = parentDocs.map((item) => item.id);
+      const studentDocGroups = await Promise.all(
+        parentIds.map((parentId) =>
+          getFirestoreDocsByFilterVariants(
+            "students",
+            [
+              [
+                { field: "schoolId", value: schoolId },
+                { field: "parentId", value: parentId },
+              ],
+              [
+                { field: "schoolId", value: schoolId },
+                { field: "parent_id", value: parentId },
+              ],
+              [
+                { field: "school_id", value: schoolId },
+                { field: "parentId", value: parentId },
+              ],
+              [
+                { field: "school_id", value: schoolId },
+                { field: "parent_id", value: parentId },
+              ],
+            ],
+            { schoolId },
+          ),
+        ),
+      );
+
+      const studentDocs = Array.from(
+        new Map(studentDocGroups.flat().map((item) => [item.id, item])).values(),
+      );
+
+      if (studentDocs.length === 0) {
+        return [];
+      }
+
+      const studentRows = studentDocs
+        .map((item) => mapFirebaseStudentRow(item.id, item.data))
+        .sort((left, right) => String(left.name ?? "").localeCompare(String(right.name ?? "")));
+      const usersMap = await getUsersMap(studentRows.map((item) => item.user_id));
+      const parentsMap = await getParentsMap(
+        studentRows.map((item) => item.parent_id).filter((value): value is string => Boolean(value)),
+      );
+
+      return studentRows.map((item) =>
+        mapStudentRecord(
+          item,
+          usersMap.get(item.user_id),
+          item.parent_id ? parentsMap.get(item.parent_id) ?? null : null,
+        ),
+      );
+    }
+
+    const client = requireDatabaseClient();
+    const schoolId = requireCurrentSchoolId();
+    const { data: parentData, error: parentError } = await client
+      .from("parents")
+      .select("id")
+      .eq("school_id", schoolId)
+      .eq("user_id", parentUserId);
+
+    if (parentError) throw new Error(parentError.message);
+
+    const parentIds = ((parentData ?? []) as Array<{ id: string }>).map((item) => item.id);
+    if (parentIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await client
+      .from("students")
+      .select("id, user_id, school_id, name, student_code, class, section, admission_date, discount_fee, aadhar_number, date_of_birth, birth_id, is_orphan, gender, caste, osc, identification_mark, previous_school, region, blood_group, previous_board_roll_no, address, parent_id")
+      .eq("school_id", schoolId)
+      .in("parent_id", parentIds)
+      .order("name");
+
+    if (error) throw new Error(error.message);
+
+    const studentRows = (data ?? []) as StudentRow[];
+    const usersMap = await getUsersMap(studentRows.map((item) => item.user_id));
+    const parentsMap = await getParentsMap(
+      studentRows.map((item) => item.parent_id).filter((value): value is string => Boolean(value)),
+    );
+
+    return studentRows.map((item) =>
+      mapStudentRecord(
+        item,
+        usersMap.get(item.user_id),
+        item.parent_id ? parentsMap.get(item.parent_id) ?? null : null,
+      ),
+    );
+  });
 };
 
 export const getStudentDetail = async (studentId: string) => {
@@ -2552,8 +2886,105 @@ export const getStudentDetail = async (studentId: string) => {
 };
 
 export const getStaffByUserId = async (userId: string) => {
-  const staff = await listStaff();
-  return staff.find((member) => member.userId === userId) ?? null;
+  return readSchoolScopedCache(`staff-by-user:${userId}`, async () => {
+    if (firebaseDb) {
+      const schoolId = requireCurrentSchoolId();
+      const snapshot = await getFirstFirestoreDocByFilterVariants(
+        "staff",
+        [
+          [
+            { field: "schoolId", value: schoolId },
+            { field: "userId", value: userId },
+          ],
+          [
+            { field: "schoolId", value: schoolId },
+            { field: "user_id", value: userId },
+          ],
+          [
+            { field: "school_id", value: schoolId },
+            { field: "userId", value: userId },
+          ],
+          [
+            { field: "school_id", value: schoolId },
+            { field: "user_id", value: userId },
+          ],
+        ],
+        { schoolId },
+      );
+
+      if (!snapshot) {
+        return null;
+      }
+
+      const staffRow = mapFirebaseStaffRow(snapshot.id, snapshot.data);
+      const usersMap = await getUsersMap([staffRow.user_id]);
+      const subjectsMap = await getSubjectsMap(
+        staffRow.subject_id ? [staffRow.subject_id] : [],
+      );
+
+      return {
+        id: staffRow.id,
+        userId: staffRow.user_id,
+        name: staffRow.name ?? usersMap.get(staffRow.user_id)?.name ?? "Unnamed staff",
+        email: usersMap.get(staffRow.user_id)?.email ?? "",
+        mobileNumber: staffRow.mobile_number ?? usersMap.get(staffRow.user_id)?.phone ?? "",
+        photoUrl: usersMap.get(staffRow.user_id)?.photo_url ?? null,
+        role: staffRow.role ?? "Teacher",
+        designation: staffRow.designation ?? null,
+        status: staffRow.status ?? "active",
+        dateOfJoining: staffRow.date_of_joining,
+        monthlySalary:
+          staffRow.monthly_salary == null || staffRow.monthly_salary === ""
+            ? null
+            : Number(staffRow.monthly_salary),
+        subjectId: staffRow.subject_id,
+        subjectName: staffRow.subject_id ? subjectsMap.get(staffRow.subject_id)?.name ?? null : null,
+        assignedClass: staffRow.assigned_class,
+        assignedSection: staffRow.assigned_section,
+        isClassCoordinator: Boolean(staffRow.is_class_coordinator),
+      } satisfies StaffRecord;
+    }
+
+    const client = requireDatabaseClient();
+    const schoolId = requireCurrentSchoolId();
+    const { data, error } = await client
+      .from("staff")
+      .select("id, user_id, school_id, name, role, designation, status, mobile_number, date_of_joining, monthly_salary, subject_id, is_class_coordinator, assigned_class, assigned_section")
+      .eq("school_id", schoolId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+
+    const staffRow = data as StaffRow;
+    const usersMap = await getUsersMap([staffRow.user_id]);
+    const subjectsMap = await getSubjectsMap(
+      staffRow.subject_id ? [staffRow.subject_id] : [],
+    );
+
+    return {
+      id: staffRow.id,
+      userId: staffRow.user_id,
+      name: staffRow.name ?? usersMap.get(staffRow.user_id)?.name ?? "Unnamed staff",
+      email: usersMap.get(staffRow.user_id)?.email ?? "",
+      mobileNumber: staffRow.mobile_number ?? usersMap.get(staffRow.user_id)?.phone ?? "",
+      photoUrl: usersMap.get(staffRow.user_id)?.photo_url ?? null,
+      role: staffRow.role ?? "Teacher",
+      designation: staffRow.designation ?? null,
+      status: staffRow.status ?? "active",
+      dateOfJoining: staffRow.date_of_joining,
+      monthlySalary:
+        staffRow.monthly_salary == null || staffRow.monthly_salary === ""
+          ? null
+          : Number(staffRow.monthly_salary),
+      subjectId: staffRow.subject_id,
+      subjectName: staffRow.subject_id ? subjectsMap.get(staffRow.subject_id)?.name ?? null : null,
+      assignedClass: staffRow.assigned_class,
+      assignedSection: staffRow.assigned_section,
+      isClassCoordinator: Boolean(staffRow.is_class_coordinator),
+    } satisfies StaffRecord;
+  });
 };
 
 export const createStudent = async (values: StudentFormValues) => {
@@ -2569,6 +3000,7 @@ export const createStudent = async (values: StudentFormValues) => {
 
   const student = await invokeAdminAction<StudentRecord>("create_student_bundle", values);
   invalidateSchoolScopedCache(["students", "classes"]);
+  invalidateSchoolScopedCacheByPrefix(["student-by-user:", "children-by-parent-user:", "notifications:"]);
   await logAuditEvent("CREATE", "STUDENT", student.id);
   return student;
 };
@@ -2586,12 +3018,14 @@ export const bulkImportStudents = async (rows: Record<string, unknown>[]): Promi
 
   const result = await invokeAdminAction<BulkImportResult>("bulk_import_students", { rows });
   invalidateSchoolScopedCache(["students", "classes"]);
+  invalidateSchoolScopedCacheByPrefix(["student-by-user:", "children-by-parent-user:", "notifications:"]);
   return result;
 };
 
 export const deleteAllStudents = async () => {
   await invokeAdminAction<{ deleted: number }>("delete_all_students", {});
   invalidateSchoolScopedCache(["students", "classes"]);
+  invalidateSchoolScopedCacheByPrefix(["student-by-user:", "children-by-parent-user:", "notifications:"]);
   await logAuditEvent("DELETE", "STUDENT_BULK_DELETE");
 };
 
@@ -2611,6 +3045,7 @@ export const updateStudent = async (
       ...values,
     });
     invalidateSchoolScopedCache(["students", "classes"]);
+    invalidateSchoolScopedCacheByPrefix(["student-by-user:", "children-by-parent-user:", "notifications:"]);
     await logAuditEvent("UPDATE", "STUDENT", student.id);
     return student;
   })();
@@ -2618,6 +3053,7 @@ export const updateStudent = async (
 export const deleteStudent = async (studentId: string) => {
   await invokeAdminAction<void>("delete_student_bundle", { id: studentId });
   invalidateSchoolScopedCache(["students", "classes"]);
+  invalidateSchoolScopedCacheByPrefix(["student-by-user:", "children-by-parent-user:", "notifications:"]);
   await logAuditEvent("DELETE", "STUDENT", studentId);
 };
 
@@ -5492,6 +5928,7 @@ export const syncUpcomingFeeReminders = async (
     .upsert(notificationRows, { onConflict: "dedupe_key", ignoreDuplicates: true });
 
   if (error) throw new Error(error.message);
+  invalidateSchoolScopedCacheByPrefix(["notifications:"]);
 };
 
 export const listNotificationsForUser = async (
@@ -5500,21 +5937,103 @@ export const listNotificationsForUser = async (
 ): Promise<NotificationRecord[]> => {
   if (!userId || !role) return [];
 
-  if (firebaseDb && !databaseClient) {
-    const schoolId = getCurrentSchoolId();
-    if (!schoolId) return [];
+  return readSchoolScopedCache(`notifications:${role}:${userId}`, async () => {
+    if (firebaseDb && !databaseClient) {
+      const schoolId = getCurrentSchoolId();
+      if (!schoolId) return [];
 
-    const docs = await getFirestoreSchoolScopedDocs("notifications", schoolId);
-    const rows = docs
-      .map((item) => mapFirebaseNotificationRow(item.id, item.data))
-      .filter((row) => {
-        if (String(row.user_id ?? "") === userId) return true;
-        if (role !== ROLES.STAFF) return false;
-        return false;
-      })
-      .sort((left, right) => String(right.created_at ?? "").localeCompare(String(left.created_at ?? "")));
+      const docsByUser = await getFirestoreDocsByFilterVariants(
+        "notifications",
+        [
+          [
+            { field: "schoolId", value: schoolId },
+            { field: "userId", value: userId },
+          ],
+          [
+            { field: "schoolId", value: schoolId },
+            { field: "user_id", value: userId },
+          ],
+          [
+            { field: "school_id", value: schoolId },
+            { field: "userId", value: userId },
+          ],
+          [
+            { field: "school_id", value: schoolId },
+            { field: "user_id", value: userId },
+          ],
+        ],
+        { schoolId },
+      );
 
-    return rows.map((row) => ({
+      let docs = docsByUser;
+
+      if (role === ROLES.STAFF) {
+        const staff = await getStaffByUserId(userId);
+        if (staff?.id) {
+          const docsByReceiver = await getFirestoreDocsByFilterVariants(
+            "notifications",
+            [
+              [
+                { field: "schoolId", value: schoolId },
+                { field: "receiverId", value: staff.id },
+              ],
+              [
+                { field: "schoolId", value: schoolId },
+                { field: "receiver_id", value: staff.id },
+              ],
+              [
+                { field: "school_id", value: schoolId },
+                { field: "receiverId", value: staff.id },
+              ],
+              [
+                { field: "school_id", value: schoolId },
+                { field: "receiver_id", value: staff.id },
+              ],
+            ],
+            { schoolId },
+          );
+          docs = Array.from(new Map([...docsByUser, ...docsByReceiver].map((item) => [item.id, item])).values());
+        }
+      }
+
+      const rows = docs
+        .map((item) => mapFirebaseNotificationRow(item.id, item.data))
+        .sort((left, right) => String(right.created_at ?? "").localeCompare(String(left.created_at ?? "")));
+
+      return rows.map((row) => ({
+        id: row.id,
+        type: row.type ?? "NOTICE",
+        module: row.module ?? null,
+        message: row.message ?? "",
+        userId: row.user_id ?? null,
+        receiverId: row.receiver_id,
+        relatedLeaveId: row.related_leave_id,
+        relatedFeeId: row.related_fee_id ?? null,
+        isRead: Boolean(row.is_read),
+        createdAt: row.created_at,
+      }));
+    }
+
+    const client = requireDatabaseClient();
+    const filters = [`user_id.eq.${userId}`];
+
+    if (role === ROLES.STAFF) {
+      const staff = await getStaffByUserId(userId);
+      if (staff) {
+        filters.push(`receiver_id.eq.${staff.id}`);
+      }
+    }
+
+    const query = client
+      .from("notifications")
+      .select("id, type, module, message, user_id, receiver_id, related_leave_id, related_fee_id, is_read, created_at")
+      .or(filters.join(","))
+      .order("created_at", { ascending: false });
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    return ((data ?? []) as NotificationRow[]).map((row) => ({
       id: row.id,
       type: row.type ?? "NOTICE",
       module: row.module ?? null,
@@ -5526,39 +6045,7 @@ export const listNotificationsForUser = async (
       isRead: Boolean(row.is_read),
       createdAt: row.created_at,
     }));
-  }
-
-  const client = requireDatabaseClient();
-  const filters = [`user_id.eq.${userId}`];
-
-  if (role === ROLES.STAFF) {
-    const staff = await getStaffByUserId(userId);
-    if (staff) {
-      filters.push(`receiver_id.eq.${staff.id}`);
-    }
-  }
-
-  const query = client
-    .from("notifications")
-    .select("id, type, module, message, user_id, receiver_id, related_leave_id, related_fee_id, is_read, created_at")
-    .or(filters.join(","))
-    .order("created_at", { ascending: false });
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-
-  return ((data ?? []) as NotificationRow[]).map((row) => ({
-    id: row.id,
-    type: row.type ?? "NOTICE",
-    module: row.module ?? null,
-    message: row.message ?? "",
-    userId: row.user_id ?? null,
-    receiverId: row.receiver_id,
-    relatedLeaveId: row.related_leave_id,
-    relatedFeeId: row.related_fee_id ?? null,
-    isRead: Boolean(row.is_read),
-    createdAt: row.created_at,
-  }));
+  });
 };
 
 export const getUnreadNotificationCount = async (
@@ -5593,12 +6080,14 @@ export const markNotificationAsRead = async (notificationId: string) => {
         { schoolId: getCurrentSchoolId(), merge: true },
       );
     }
+    invalidateSchoolScopedCacheByPrefix(["notifications:"]);
     return;
   }
 
   const client = requireDatabaseClient();
   const { error } = await client.from("notifications").update({ is_read: true }).eq("id", notificationId);
   if (error) throw new Error(error.message);
+  invalidateSchoolScopedCacheByPrefix(["notifications:"]);
 };
 
 export const listTimetableImpacts = async (filters?: {
@@ -6381,6 +6870,7 @@ export const staffRoleOptions = [
   "Accounts",
   "Transport",
   "Admission",
+  "Principal",
   "Non-Teaching Staff",
 ];
 

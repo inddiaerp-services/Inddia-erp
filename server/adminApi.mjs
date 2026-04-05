@@ -918,7 +918,7 @@ const upsertFirebaseStaffAccount = async ({
       email,
       password,
       name,
-      role: "staff",
+      role: getManagedAuthRoleForStaff(role),
       schoolId: tenantSchoolId,
     });
     authUser = { user: { id: existingUserId, email } };
@@ -927,7 +927,7 @@ const upsertFirebaseStaffAccount = async ({
       email,
       password,
       name,
-      role: "staff",
+      role: getManagedAuthRoleForStaff(role),
       schoolId: tenantSchoolId,
     });
     createdAuthUser = true;
@@ -938,7 +938,7 @@ const upsertFirebaseStaffAccount = async ({
       name,
       email,
       phone: mobileNumber,
-      role: "staff",
+      role: getManagedAuthRoleForStaff(role),
       school_id: tenantSchoolId,
       photo_url: photoUrl,
     });
@@ -954,6 +954,8 @@ const upsertFirebaseStaffAccount = async ({
         schoolId: tenantSchoolId,
         name,
         role,
+        designation: isPrincipalRoleValue(role) ? "Principal" : role,
+        status: "active",
         mobileNumber,
         dateOfJoining,
         monthlySalary,
@@ -1113,10 +1115,58 @@ const normalizeRoleValue = (value) => {
   if (!normalized) return null;
   if (normalized === "superadmin" || normalized === "platform_owner") return "super_admin";
   if (normalized === "school_admin") return "admin";
-  if (["super_admin", "admin", "staff", "student", "parent", "teacher", "hr", "accounts", "transport", "admission"].includes(normalized)) {
+  if (["super_admin", "admin", "principal", "staff", "student", "parent", "teacher", "hr", "accounts", "transport", "admission"].includes(normalized)) {
     return normalized;
   }
   return null;
+};
+
+const isPrincipalRoleValue = (value) => normalizeRoleValue(value) === "principal";
+
+const getManagedAuthRoleForStaff = (role) => (isPrincipalRoleValue(role) ? "principal" : "staff");
+
+const ensurePrincipalDoesNotAlreadyExist = async ({ schoolId, excludedStaffId = null }) => {
+  if (!schoolId) {
+    throw new Error("School context is required.");
+  }
+
+  if (firebaseAdminDb) {
+    const snapshot = await getFirestoreSchoolScopedQuery("staff", schoolId)?.get();
+    const existing = (snapshot?.docs ?? []).find((doc) => {
+      if (excludedStaffId && doc.id === excludedStaffId) {
+        return false;
+      }
+
+      return isPrincipalRoleValue(doc.data()?.role) || isPrincipalRoleValue(doc.data()?.designation);
+    });
+
+    if (existing) {
+      throw new Error("Principal already exists for this school");
+    }
+
+    return;
+  }
+
+  const { data, error } = await service
+    .from("staff")
+    .select("id, role, designation")
+    .eq("school_id", schoolId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const existing = (data ?? []).find((row) => {
+    if (excludedStaffId && row.id === excludedStaffId) {
+      return false;
+    }
+
+    return isPrincipalRoleValue(row.role) || isPrincipalRoleValue(row.designation);
+  });
+
+  if (existing) {
+    throw new Error("Principal already exists for this school");
+  }
 };
 
 const getAuthUserMetadata = (authUser) => {
@@ -2840,6 +2890,10 @@ const createStaff = async (payload, authHeader) => {
     throw new Error("School context is missing for this staff creation request.");
   }
 
+  if (isPrincipalRoleValue(role)) {
+    await ensurePrincipalDoesNotAlreadyExist({ schoolId: tenantSchoolId });
+  }
+
   if (firebaseAdminDb) {
     try {
       return await upsertFirebaseStaffAccount({
@@ -3196,12 +3250,16 @@ const updateStaff = async (payload, authHeader) => {
     throw new Error("School context is missing for this staff update request.");
   }
 
+  if (isPrincipalRoleValue(role)) {
+    await ensurePrincipalDoesNotAlreadyExist({ schoolId: tenantSchoolId, excludedStaffId: id });
+  }
+
   if (firebaseAdminDb) {
     await updateManagedAuthUser(userId, {
       email,
       password,
       name,
-      role: "staff",
+      role: getManagedAuthRoleForStaff(role),
       schoolId: tenantSchoolId,
     });
 
@@ -3209,7 +3267,7 @@ const updateStaff = async (payload, authHeader) => {
       name,
       email,
       phone: mobileNumber,
-      role: "staff",
+      role: getManagedAuthRoleForStaff(role),
       school_id: tenantSchoolId,
       photo_url: photoUrl,
     });
@@ -3221,6 +3279,8 @@ const updateStaff = async (payload, authHeader) => {
         schoolId: tenantSchoolId,
         name,
         role,
+        designation: isPrincipalRoleValue(role) ? "Principal" : role,
+        status: "active",
         mobileNumber,
         dateOfJoining,
         monthlySalary,

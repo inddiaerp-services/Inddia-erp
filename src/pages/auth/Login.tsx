@@ -5,7 +5,7 @@ import Button from "../../components/ui/Button";
 import Input from "../../components/ui/Input";
 import { authStore } from "../../store/authStore";
 import { loginWithIdentifier } from "../../services/authService";
-import { ROLES } from "../../config/roles";
+import { getDefaultRouteForRole } from "../../utils/navigation";
 
 export const Login = () => {
   const navigate = useNavigate();
@@ -16,7 +16,7 @@ export const Login = () => {
   const [submitting, setSubmitting] = useState(false);
 
   if (user) {
-    return <Navigate to={user.role === ROLES.SUPER_ADMIN ? "/super-admin/dashboard" : "/dashboard/home"} replace />;
+    return <Navigate to={getDefaultRouteForRole(user.role)} replace />;
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -30,7 +30,7 @@ export const Login = () => {
         throw new Error("Unable to sign in. User profile was not returned.");
       }
       setAuth(result);
-      navigate(result.user.role === ROLES.SUPER_ADMIN ? "/super-admin/dashboard" : "/dashboard/home", { replace: true });
+      navigate(getDefaultRouteForRole(result.user.role), { replace: true });
     } catch (submissionError) {
       setError(
         submissionError instanceof Error
