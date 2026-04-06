@@ -42,21 +42,21 @@ export const LanguageSwitcher = ({ dark = false }: LanguageSwitcherProps) => {
   }, []);
 
   const triggerClassName = dark
-    ? "border-white/10 bg-white/10 text-white hover:bg-white/15"
+    ? "landing-language-trigger"
     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50";
   const panelClassName = dark
-    ? "border-white/10 bg-slate-950/95 text-white shadow-2xl"
+    ? "landing-language-panel"
     : "border-slate-200 bg-white text-slate-900 shadow-2xl";
-  const inactiveTextClassName = dark ? "text-slate-300" : "text-slate-500";
+  const inactiveTextClassName = dark ? "landing-language-muted" : "text-slate-500";
   const activeClassName = dark
-    ? "border-sky-400/30 bg-sky-500/15 text-white"
+    ? "landing-language-option-active"
     : "border-blue-200 bg-blue-50 text-blue-700";
   const inactiveClassName = dark
-    ? "border-transparent hover:bg-white/10"
+    ? "landing-language-option"
     : "border-transparent hover:bg-slate-50";
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className={`relative ${dark ? "landing-language-root" : ""}`}>
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}

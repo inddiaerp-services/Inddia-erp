@@ -770,6 +770,57 @@ body > .skiptranslate,
     -webkit-backdrop-filter: blur(32px);
   }
 
+  .landing-language-root { font-family: 'DM Sans', sans-serif; }
+  .landing-language-trigger {
+    border-color: rgba(212, 168, 67, 0.18) !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03)),
+      rgba(26, 20, 12, 0.84) !important;
+    color: #e8c97a !important;
+    box-shadow:
+      0 10px 28px rgba(0, 0, 0, 0.24),
+      0 0 0 1px rgba(212, 168, 67, 0.05) inset;
+    backdrop-filter: blur(18px);
+  }
+
+  .landing-language-trigger:hover {
+    background:
+      linear-gradient(180deg, rgba(212, 168, 67, 0.08), rgba(255, 255, 255, 0.03)),
+      rgba(30, 22, 14, 0.92) !important;
+    border-color: rgba(212, 168, 67, 0.28) !important;
+    color: #f5d78f !important;
+  }
+
+  .landing-language-panel {
+    border-color: rgba(212, 168, 67, 0.16) !important;
+    background: linear-gradient(180deg, rgba(26, 20, 12, 0.98), rgba(18, 14, 10, 0.98)) !important;
+    color: #f5f0e8 !important;
+    box-shadow:
+      0 28px 60px rgba(0, 0, 0, 0.46),
+      0 0 0 1px rgba(212, 168, 67, 0.05) inset !important;
+    backdrop-filter: blur(24px);
+  }
+
+  .landing-language-muted { color: #8f816f !important; }
+
+  .landing-language-option {
+    border-color: transparent !important;
+    background: transparent !important;
+    color: #f1e7d7 !important;
+  }
+
+  .landing-language-option:hover {
+    border-color: rgba(212, 168, 67, 0.12) !important;
+    background: rgba(212, 168, 67, 0.08) !important;
+  }
+
+  .landing-language-option-active {
+    border-color: rgba(212, 168, 67, 0.28) !important;
+    background: linear-gradient(135deg, rgba(212, 168, 67, 0.16), rgba(212, 168, 67, 0.08)) !important;
+    color: #f5d78f !important;
+    box-shadow: 0 8px 24px rgba(212, 168, 67, 0.08);
+  }
+
   /* ── REDESIGNED LANDING NAVBAR ── */
   .landing-nav-logo {
     font-family: 'Syne', sans-serif;
