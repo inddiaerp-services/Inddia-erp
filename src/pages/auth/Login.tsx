@@ -43,38 +43,35 @@ export const Login = () => {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-950 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.25),transparent_28%),radial-gradient(circle_at_85%_15%,rgba(16,185,129,0.14),transparent_20%),linear-gradient(180deg,#020617_0%,#0f172a_100%)]" />
-      <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(148,163,184,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.12)_1px,transparent_1px)] [background-size:36px_36px]" />
-
-      <div className="relative mx-auto grid min-h-[calc(100vh-3rem)] max-w-6xl items-center gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-        <Card className="hidden border-white/10 bg-white/[0.06] text-white shadow-2xl ring-1 ring-white/10 lg:block">
+    <div data-theme="landing" className="auth-shell">
+      <div className="auth-shell-inner">
+        <Card className="auth-card auth-showcase">
           <div className="flex h-full flex-col justify-between gap-10">
             <div>
-              <span className="inline-flex rounded-full border border-brand-300/30 bg-brand-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-brand-100">
+              <span className="auth-showcase-badge">
                 School ERP Platform
               </span>
-              <h1 className="mt-6 max-w-xl text-4xl font-semibold leading-tight text-white">
+              <h1 className="auth-showcase-title">
                 Professional school operations, delivered in one secure workspace.
               </h1>
-              <p className="mt-5 max-w-xl text-base leading-7 text-slate-300">
+              <p className="auth-showcase-copy">
                 Manage academics, attendance, fees, staff, and student workflows with a cleaner
                 admin-managed ERP experience.
               </p>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Access</p>
-                <p className="mt-2 text-lg font-semibold text-white">Private Login</p>
-                <p className="mt-2 text-sm leading-6 text-slate-300">
+            <div className="auth-showcase-grid">
+              <div className="auth-showcase-stat">
+                <p className="auth-showcase-stat-label">Access</p>
+                <p className="auth-showcase-stat-title">Private Login</p>
+                <p className="auth-showcase-stat-copy">
                   No public signup. Accounts are created by admin only.
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Security</p>
-                <p className="mt-2 text-lg font-semibold text-white">Protected</p>
-                <p className="mt-2 text-sm leading-6 text-slate-300">
+              <div className="auth-showcase-stat">
+                <p className="auth-showcase-stat-label">Security</p>
+                <p className="auth-showcase-stat-title">Protected</p>
+                <p className="auth-showcase-stat-copy">
                   Session-aware sign-in with role-based routing.
                 </p>
               </div>
@@ -82,28 +79,28 @@ export const Login = () => {
           </div>
         </Card>
 
-        <Card className="w-full border-white/12 bg-white/95 p-5 shadow-2xl ring-1 ring-slate-200/70 sm:p-6 md:p-8">
-          <div className="mb-6 lg:hidden">
-            <span className="inline-flex rounded-full bg-brand-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-700">
+        <Card className="auth-card auth-form-card">
+          <div className="auth-mobile-intro">
+            <span className="auth-kicker">
               Secure Access
             </span>
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">INDDIA ERP Login</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
+            <h1 className="auth-title">INDDIA ERP Login</h1>
+            <p className="auth-subtitle">
               Sign in with your assigned account to enter the ERP workspace.
             </p>
           </div>
 
-          <div className="hidden lg:block">
-            <span className="inline-flex rounded-full bg-brand-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-700">
+          <div className="auth-desktop-intro">
+            <span className="auth-kicker">
               Secure Access
             </span>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">Welcome back</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
+            <h2 className="auth-title">Welcome back</h2>
+            <p className="auth-subtitle">
               Use one login form for staff, students, and parents.
             </p>
           </div>
 
-          <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
+          <form className="auth-form" onSubmit={handleSubmit}>
             <div className="grid gap-5">
               <Input
                 label="Email Address or Student ID"
@@ -111,6 +108,9 @@ export const Login = () => {
                 value={identifier}
                 onChange={(event) => setIdentifier(event.target.value)}
                 autoComplete="username"
+                variant="dark"
+                labelClassName="text-slate-200"
+                className="auth-input"
                 required
               />
               <Input
@@ -121,11 +121,14 @@ export const Login = () => {
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete="current-password"
                 error={error}
+                variant="dark"
+                labelClassName="text-slate-200"
+                className="auth-input"
                 required
               />
             </div>
 
-            <Button type="submit" fullWidth disabled={submitting} className="min-h-12">
+            <Button type="submit" fullWidth disabled={submitting} className="auth-submit">
               {submitting ? "Signing in..." : "Login"}
             </Button>
           </form>

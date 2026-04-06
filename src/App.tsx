@@ -7,6 +7,7 @@ import DashboardHome from "./pages/dashboard/Home";
 import ChildPage from "./pages/dashboard/Child";
 import { authStore } from "./store/authStore";
 import { hydrateAuthSession, restoreSession, subscribeToAuthSessionChanges } from "./services/authService";
+import { syncFirebaseProjectConnection } from "./services/firebaseClient";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import ProtectedRoute from "./components/layout/ProtectedRoute";
 import RoleProtectedRoute from "./components/layout/RoleProtectedRoute";
@@ -143,6 +144,8 @@ function App() {
 
     const initialize = async () => {
       try {
+        await syncFirebaseProjectConnection();
+
         const restored = await Promise.race([
           restoreSession(),
           new Promise<Awaited<ReturnType<typeof restoreSession>>>((resolve) => {

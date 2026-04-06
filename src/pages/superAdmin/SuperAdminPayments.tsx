@@ -213,11 +213,11 @@ export const SuperAdminPaymentsPage = () => {
           description="Slice the ledger by status, payment method, and amount priority without losing context."
         />
 
-        <div className="superadmin-filter-grid">
+        <div className="dashboard-filter-grid">
           <Input label="Search" placeholder="Search school, method, status, or receipt id" value={query} onChange={(event) => setQuery(event.target.value)} />
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="erp-select">
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="ui-select">
               <option value="all">All statuses</option>
               <option value="Success">Success</option>
               <option value="Failed">Failed</option>
@@ -225,7 +225,7 @@ export const SuperAdminPaymentsPage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Method</span>
-            <select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="erp-select">
+            <select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="ui-select">
               <option value="all">All methods</option>
               {paymentMethods.map((method) => (
                 <option key={method} value={method}>
@@ -236,7 +236,7 @@ export const SuperAdminPaymentsPage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Sort</span>
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="erp-select">
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="ui-select">
               <option value="newest">Newest</option>
               <option value="failed-first">Failed first</option>
               <option value="success-first">Success first</option>
@@ -245,7 +245,7 @@ export const SuperAdminPaymentsPage = () => {
           </label>
         </div>
 
-        <div className="superadmin-banner mt-4 border-rose-200 bg-rose-50/90 text-rose-700">
+        <div className="inline-banner mt-4 border-rose-200 bg-rose-50/90 text-rose-700">
           {failedPayments} failed payment{failedPayments === 1 ? "" : "s"} need attention.
         </div>
 
@@ -282,17 +282,17 @@ export const SuperAdminPaymentsPage = () => {
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <button type="button" onClick={() => void downloadReceipt(row)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">Download Receipt</button>
-                  <button type="button" onClick={() => openView(row)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">View</button>
-                  <button type="button" onClick={() => navigate(`/super-admin/payments/${row.id}/edit`)} className="rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50">Edit</button>
-                  <button type="button" onClick={() => void handleDelete(row)} className="rounded-xl border border-rose-200 bg-white px-3 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50">Delete</button>
+                  <button type="button" onClick={() => void downloadReceipt(row)} className="page-action-button">Download Receipt</button>
+                  <button type="button" onClick={() => openView(row)} className="page-action-button">View</button>
+                  <button type="button" onClick={() => navigate(`/super-admin/payments/${row.id}/edit`)} className="page-action-button page-action-button-warning">Edit</button>
+                  <button type="button" onClick={() => void handleDelete(row)} className="page-action-button page-action-button-danger">Delete</button>
                 </div>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="superadmin-table-shell hidden md:block">
+        <div className="dashboard-table-shell hidden md:block">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
@@ -318,10 +318,10 @@ export const SuperAdminPaymentsPage = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => void downloadReceipt(row)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Receipt</button>
-                      <button type="button" onClick={() => openView(row)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">View</button>
-                        <button type="button" onClick={() => navigate(`/super-admin/payments/${row.id}/edit`)} className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50">Edit</button>
-                      <button type="button" onClick={() => void handleDelete(row)} className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50">Delete</button>
+                      <button type="button" onClick={() => void downloadReceipt(row)} className="page-action-button text-xs">Receipt</button>
+                      <button type="button" onClick={() => openView(row)} className="page-action-button text-xs">View</button>
+                        <button type="button" onClick={() => navigate(`/super-admin/payments/${row.id}/edit`)} className="page-action-button page-action-button-warning text-xs">Edit</button>
+                      <button type="button" onClick={() => void handleDelete(row)} className="page-action-button page-action-button-danger text-xs">Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -366,7 +366,7 @@ export const SuperAdminPaymentsPage = () => {
               <Input label="Payment Date" type="date" value={form.paymentDate} onChange={(event) => setForm((current) => ({ ...current, paymentDate: event.target.value }))} />
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-                <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as PaymentUpdateValues["status"] }))} className="erp-select">
+                <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as PaymentUpdateValues["status"] }))} className="ui-select">
                   <option value="Success">Success</option>
                   <option value="Failed">Failed</option>
                 </select>

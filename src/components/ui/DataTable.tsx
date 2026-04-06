@@ -43,8 +43,6 @@ export const DataTable = <T,>({
   className,
 }: DataTableProps<T>) => {
   const [page, setPage] = useState(1);
-  const isSuperAdminArea =
-    typeof window !== "undefined" && window.location.pathname.startsWith("/super-admin");
 
   const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -60,38 +58,24 @@ export const DataTable = <T,>({
       : `Showing ${(safePage - 1) * pageSize + 1}-${Math.min(safePage * pageSize, data.length)} of ${data.length}`;
 
   return (
-    <Card
-      className={cn(
-        isSuperAdminArea
-          ? "overflow-hidden border-slate-200/80 bg-white/95 p-0 shadow-sm ring-1 ring-slate-100/80"
-          : "overflow-hidden border-slate-200/80 bg-white p-0 shadow-[0_16px_40px_rgba(15,23,42,0.06)]",
-        className,
-      )}
-    >
+    <Card className={cn("overflow-hidden p-0", className)}>
       {title || description ? (
-        <div className={cn("border-b px-4 py-4 md:px-6", isSuperAdminArea ? "border-slate-200/80" : "border-slate-200/80 bg-white")}>
+        <div className="border-b border-[var(--border)] px-4 py-4 md:px-6">
           {title ? <h3 className="text-base font-semibold text-slate-900 md:text-lg">{title}</h3> : null}
           {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
         </div>
       ) : null}
 
-      <div
-        className={cn(
-          "flex items-center justify-between gap-3 border-b px-4 py-3 text-sm text-slate-500 md:px-6",
-          isSuperAdminArea ? "border-slate-100 bg-slate-50/80" : "border-slate-200/70 bg-slate-50/85",
-        )}
-      >
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-sm text-slate-500 md:px-6">
         <p>{summary}</p>
-        <p className="hidden text-xs uppercase tracking-[0.18em] text-slate-400 md:block">
-          {isSuperAdminArea ? "ERP Data View" : "Workspace Table"}
-        </p>
+        <p className="hidden text-xs uppercase tracking-[0.18em] text-slate-400 md:block">Workspace Table</p>
       </div>
 
       <div className="md:hidden">
         {loading ? (
           <div className="space-y-3 p-4">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="mobile-glass-panel rounded-[1.5rem] border border-slate-200/70 bg-white p-4 shadow-[0_14px_30px_rgba(15,23,42,0.07)]">
+              <div key={index} className="mobile-panel rounded-[1rem] p-4">
                 <div className="h-5 w-1/2 animate-pulse rounded-full bg-slate-200" />
                 <div className="mt-4 space-y-3">
                   <div className="h-4 w-full animate-pulse rounded-full bg-slate-100" />
@@ -107,7 +91,7 @@ export const DataTable = <T,>({
             {pagedData.map((item) => (
               <details
                 key={getRowId(item)}
-                className="mobile-glass-panel overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white shadow-[0_14px_30px_rgba(15,23,42,0.07)]"
+                className="mobile-panel overflow-hidden rounded-[1rem]"
               >
                 <summary className="flex cursor-pointer list-none items-start justify-between gap-3 px-4 py-4">
                   <div className="min-w-0">
@@ -138,18 +122,18 @@ export const DataTable = <T,>({
 
       <div className="hidden overflow-x-auto md:block">
         <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-white">
+          <thead className="sticky top-0 z-10 bg-[var(--surface)]">
             <tr>
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className="border-b border-slate-200 bg-slate-50 px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500"
+                  className="border-b border-[var(--border)] bg-[var(--surface-muted)] px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500"
                 >
                   {column.label}
                 </th>
               ))}
               {renderActions ? (
-                <th className="border-b border-slate-200 bg-slate-50 px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                <th className="border-b border-[var(--border)] bg-[var(--surface-muted)] px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                   Actions
                 </th>
               ) : null}
@@ -158,14 +142,14 @@ export const DataTable = <T,>({
           <tbody>
             {loading ? (
               Array.from({ length: 5 }).map((_, rowIndex) => (
-                <tr key={rowIndex} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50/65"}>
+                <tr key={rowIndex} className={rowIndex % 2 === 0 ? "bg-[var(--surface)]" : "bg-[var(--surface-muted)]"}>
                   {columns.map((column) => (
-                    <td key={column.key} className="border-b border-slate-100 px-6 py-4">
+                    <td key={column.key} className="border-b border-[var(--border)] px-6 py-4">
                       <div className="h-4 w-full animate-pulse rounded-full bg-slate-100" />
                     </td>
                   ))}
                   {renderActions ? (
-                    <td className="border-b border-slate-100 px-6 py-4">
+                    <td className="border-b border-[var(--border)] px-6 py-4">
                       <div className="h-4 w-24 animate-pulse rounded-full bg-slate-100" />
                     </td>
                   ) : null}
@@ -179,13 +163,13 @@ export const DataTable = <T,>({
               </tr>
             ) : (
               pagedData.map((item, rowIndex) => (
-                <tr key={getRowId(item)} className={cn("transition hover:bg-blue-50/70", rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50/70")}>
+                <tr key={getRowId(item)} className={cn("transition hover:bg-[var(--nav-hover)]", rowIndex % 2 === 0 ? "bg-[var(--surface)]" : "bg-[var(--surface-muted)]")}>
                   {columns.map((column) => (
-                    <td key={column.key} className={cn("border-b border-slate-100 px-6 py-4 align-top text-slate-700", column.emphasis && "font-semibold text-slate-900")}>
+                    <td key={column.key} className={cn("border-b border-[var(--border)] px-6 py-4 align-top text-slate-700", column.emphasis && "font-semibold text-slate-900")}>
                       {column.render(item)}
                     </td>
                   ))}
-                  {renderActions ? <td className="border-b border-slate-100 px-6 py-4">{renderActions(item)}</td> : null}
+                  {renderActions ? <td className="border-b border-[var(--border)] px-6 py-4">{renderActions(item)}</td> : null}
                 </tr>
               ))
             )}
@@ -194,7 +178,7 @@ export const DataTable = <T,>({
       </div>
 
       {data.length > pageSize ? (
-        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
+        <div className="flex flex-col gap-3 border-t border-[var(--border)] px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
           <p className="text-sm text-slate-500">Page {safePage} of {totalPages}</p>
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage === 1}>

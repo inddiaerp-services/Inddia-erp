@@ -78,7 +78,7 @@ export const CreateBillingPaymentModal = ({ open, onClose, onCreated }: CreateBi
       maxWidthClass="max-w-3xl"
     >
       <form className="space-y-5" onSubmit={handleSubmit}>
-        <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <div className="page-info-box text-sm">
           Choose the school, confirm the plan, and record the payment details. This will update or renew the subscription immediately.
         </div>
 
@@ -86,7 +86,7 @@ export const CreateBillingPaymentModal = ({ open, onClose, onCreated }: CreateBi
           <label className="block md:col-span-2">
             <span className="mb-2 block text-sm font-medium text-slate-700">School</span>
             <select
-              className="erp-select"
+              className="ui-select"
               value={form.schoolId}
               onChange={(event) => setForm((current) => ({ ...current, schoolId: event.target.value }))}
               required
@@ -108,7 +108,7 @@ export const CreateBillingPaymentModal = ({ open, onClose, onCreated }: CreateBi
         {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
         {success ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div> : null}
 
-        <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
+        <div className="page-form-footer sm:flex-row sm:justify-end">
           <Button type="button" variant="ghost" className="bg-slate-100 text-slate-700 hover:bg-slate-200" onClick={() => handleClose()} disabled={submitting}>
             Cancel
           </Button>

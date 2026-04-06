@@ -205,7 +205,7 @@ export function CrudPage<T extends { id: string }>({
                     [filter.key]: event.target.value,
                   }))
                 }
-                className="erp-select"
+                className="ui-select"
               >
                 <option value="">All</option>
                 {filter.options.map((option) => (
@@ -285,7 +285,7 @@ export function CrudPage<T extends { id: string }>({
                       value={value}
                       required={field.required}
                       onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}
-                      className="erp-select"
+                      className="ui-select"
                     >
                       <option value="">Select {field.label}</option>
                       {(field.options ?? []).map((option) => (

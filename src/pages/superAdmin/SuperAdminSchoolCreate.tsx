@@ -137,7 +137,7 @@ export const SuperAdminSchoolCreatePage = () => {
             {error ? <p className="text-sm text-amber-700">{error}</p> : null}
             {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
 
-            <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-between">
+            <div className="page-form-footer sm:flex-row sm:justify-between">
               <Link to="/super-admin/schools" className="w-full sm:w-auto">
                 <Button variant="outline" className="w-full sm:w-auto">Cancel</Button>
               </Link>
@@ -170,19 +170,19 @@ export const SuperAdminSchoolCreatePage = () => {
           <SuperAdminPanel>
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">Setup Preview</p>
             <div className="mt-4 space-y-3 text-sm">
-              <div className="flex items-center justify-between gap-4 rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-4 page-detail-card">
                 <span className="text-slate-500">School</span>
                 <span className="font-medium text-slate-900">{form.name || "New School"}</span>
               </div>
-              <div className="flex items-center justify-between gap-4 rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-4 page-detail-card">
                 <span className="text-slate-500">Plan</span>
                 <span className="font-medium text-slate-900">{form.plan || "Starter"}</span>
               </div>
-              <div className="flex items-center justify-between gap-4 rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-4 page-detail-card">
                 <span className="text-slate-500">Duration</span>
                 <span className="font-medium text-slate-900">{form.durationMonths || "1"} month(s)</span>
               </div>
-              <div className="flex items-center justify-between gap-4 rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-4 page-detail-card">
                 <span className="text-slate-500">Admin</span>
                 <span className="font-medium text-slate-900">{form.adminName || "Pending"}</span>
               </div>

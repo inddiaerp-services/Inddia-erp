@@ -102,7 +102,7 @@ export const SuperAdminStorageEditPage = () => {
               {error ? <p className="text-sm text-rose-600">{error}</p> : null}
               {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
 
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-between">
+              <div className="page-form-footer sm:flex-row sm:justify-between">
                 <Link to="/super-admin/storage" className="w-full sm:w-auto">
                   <Button variant="outline" className="w-full sm:w-auto">Cancel</Button>
                 </Link>
@@ -117,15 +117,15 @@ export const SuperAdminStorageEditPage = () => {
         <SuperAdminPanel>
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">Storage Context</p>
           <div className="mt-4 space-y-3 text-sm">
-            <div className="rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="page-detail-card">
               <p className="text-slate-500">School</p>
               <p className="mt-1 font-medium text-slate-900">{row?.schoolName ?? "-"}</p>
             </div>
-            <div className="rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="page-detail-card">
               <p className="text-slate-500">Current Usage</p>
               <p className="mt-1 font-medium text-slate-900">{row?.usagePercent ?? 0}%</p>
             </div>
-            <div className="rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="page-detail-card">
               <p className="text-slate-500">File Count</p>
               <p className="mt-1 font-medium text-slate-900">{row?.fileCount ?? 0}</p>
             </div>

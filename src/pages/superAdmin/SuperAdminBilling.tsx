@@ -184,11 +184,11 @@ export const SuperAdminBillingPage = () => {
           description="Filter by status, isolate expiring plans, and update pricing or validity windows without leaving the screen."
         />
 
-        <div className="superadmin-filter-grid">
+        <div className="dashboard-filter-grid">
           <Input label="Search" placeholder="Search school or plan" value={query} onChange={(event) => setQuery(event.target.value)} />
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="erp-select">
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="ui-select">
               <option value="all">All statuses</option>
               <option value="Trial">Trial</option>
               <option value="Active">Active</option>
@@ -198,7 +198,7 @@ export const SuperAdminBillingPage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Reminder filter</span>
-            <select value={renewalFilter} onChange={(event) => setRenewalFilter(event.target.value)} className="erp-select">
+            <select value={renewalFilter} onChange={(event) => setRenewalFilter(event.target.value)} className="ui-select">
               <option value="all">All records</option>
               <option value="renewal">Renewal due in 14 days</option>
               <option value="expired">Expired only</option>
@@ -206,7 +206,7 @@ export const SuperAdminBillingPage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Sort</span>
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="erp-select">
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="ui-select">
               <option value="expiry">Expiry date</option>
               <option value="newest">Newest</option>
               <option value="amount">Highest amount</option>
@@ -216,7 +216,7 @@ export const SuperAdminBillingPage = () => {
           </label>
         </div>
 
-        <div className="superadmin-banner mt-4 border-amber-200 bg-amber-50/90 text-amber-800">
+        <div className="inline-banner mt-4 border-amber-200 bg-amber-50/90 text-amber-800">
           {remindersDue} billing reminder{remindersDue === 1 ? "" : "s"} due in the next 14 days.
         </div>
 
@@ -255,9 +255,9 @@ export const SuperAdminBillingPage = () => {
                   </div>
 
                   <div className="grid gap-2 sm:grid-cols-3">
-                    <button type="button" onClick={() => openView(row)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">View</button>
-                    <button type="button" onClick={() => navigate(`/super-admin/billing/${row.schoolId}/edit`)} className="rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50">Edit</button>
-                    <button type="button" onClick={() => void handleDelete(row)} className="rounded-xl border border-rose-200 bg-white px-3 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50">Delete</button>
+                    <button type="button" onClick={() => openView(row)} className="page-action-button">View</button>
+                    <button type="button" onClick={() => navigate(`/super-admin/billing/${row.schoolId}/edit`)} className="page-action-button page-action-button-warning">Edit</button>
+                    <button type="button" onClick={() => void handleDelete(row)} className="page-action-button page-action-button-danger">Delete</button>
                   </div>
                 </div>
               </div>
@@ -265,7 +265,7 @@ export const SuperAdminBillingPage = () => {
           })}
         </div>
 
-        <div className="superadmin-table-shell hidden md:block">
+        <div className="dashboard-table-shell hidden md:block">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
@@ -299,9 +299,9 @@ export const SuperAdminBillingPage = () => {
                     <td className="px-4 py-3 text-slate-600">{formatDate(row.expiryDate)}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" onClick={() => openView(row)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">View</button>
-                        <button type="button" onClick={() => navigate(`/super-admin/billing/${row.schoolId}/edit`)} className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50">Edit</button>
-                        <button type="button" onClick={() => void handleDelete(row)} className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50">Delete</button>
+                        <button type="button" onClick={() => openView(row)} className="page-action-button text-xs">View</button>
+                        <button type="button" onClick={() => navigate(`/super-admin/billing/${row.schoolId}/edit`)} className="page-action-button page-action-button-warning text-xs">Edit</button>
+                        <button type="button" onClick={() => void handleDelete(row)} className="page-action-button page-action-button-danger text-xs">Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -335,7 +335,7 @@ export const SuperAdminBillingPage = () => {
               <Input label="Amount" type="number" min="0" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} required />
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-                <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as BillingUpdateValues["status"] }))} className="erp-select">
+                <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as BillingUpdateValues["status"] }))} className="ui-select">
                   <option value="Trial">Trial</option>
                   <option value="Active">Active</option>
                   <option value="Expired">Expired</option>

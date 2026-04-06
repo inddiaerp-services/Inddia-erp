@@ -71,7 +71,7 @@ export const CreateSchoolModal = ({ open, onClose, onCreated }: CreateSchoolModa
       maxWidthClass="max-w-3xl"
     >
       <form className="space-y-5" onSubmit={handleSubmit}>
-        <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <div className="page-info-box text-sm">
           Fill in the school identity, billing plan, and admin credentials in one pass. The school admin account will be provisioned as part of this flow.
         </div>
 
@@ -92,7 +92,7 @@ export const CreateSchoolModal = ({ open, onClose, onCreated }: CreateSchoolModa
         {error ? <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</div> : null}
         {success ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div> : null}
 
-        <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
+        <div className="page-form-footer sm:flex-row sm:justify-end">
           <Button type="button" variant="ghost" className="bg-slate-100 text-slate-700 hover:bg-slate-200" onClick={() => handleClose()} disabled={submitting}>
             Cancel
           </Button>

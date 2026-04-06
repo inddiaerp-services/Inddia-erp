@@ -148,14 +148,14 @@ export const SuperAdminDashboardPage = () => {
         actions={
           <>
             <Link to="/super-admin/schools/new" className="w-full sm:w-auto">
-              <Button className="w-full rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-300 to-cyan-300 px-5 text-slate-950 shadow-lg shadow-sky-900/20 hover:from-sky-200 hover:to-cyan-200 sm:w-auto">
+              <Button className="super-hero-primary w-full rounded-2xl px-5 sm:w-auto">
                 + Add School
               </Button>
             </Link>
             <Link to="/super-admin/audit-logs" className="w-full sm:w-auto">
               <Button
                 variant="outline"
-                className="w-full rounded-2xl border border-white/20 bg-white/15 px-5 text-white hover:bg-white/22 sm:w-auto"
+                className="super-hero-outline w-full rounded-2xl px-5 sm:w-auto"
               >
                 Review Audit Logs
               </Button>
@@ -226,7 +226,7 @@ export const SuperAdminDashboardPage = () => {
           />
           <div className="mt-5 space-y-3">
             {recentSchools.map((item) => (
-              <div key={item.id} className="flex flex-col gap-3 rounded-[1.4rem] border border-slate-200 bg-slate-50/85 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div key={item.id} className="page-summary-row flex-col sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className="font-medium text-slate-900">{item.name}</p>
                   <p className="text-sm text-slate-500">Expiry: {formatDate(item.expiryDate)}</p>
@@ -245,7 +245,7 @@ export const SuperAdminDashboardPage = () => {
           />
           <div className="mt-5 space-y-3">
             {latestBilling.map((item) => (
-              <div key={item.schoolId} className="rounded-[1.4rem] border border-slate-200 bg-slate-50/85 px-4 py-3">
+              <div key={item.schoolId} className="page-detail-card">
                 <p className="font-medium text-slate-900">{item.schoolName}</p>
                 <p className="mt-1 text-sm text-slate-500">{item.planName}</p>
                 <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">

@@ -69,7 +69,7 @@ export const CompactMetricCard = ({
   detail: string;
   icon: ReactNode;
 }) => (
-  <Card className="erp-kpi-card p-4">
+  <Card className="metric-card p-4">
     <div className="flex items-start gap-3">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
         {icon}

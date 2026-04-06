@@ -1295,7 +1295,7 @@ export const AttendancePage = () => {
       {geoToast ? (
         <div className="fixed right-6 top-24 z-50 max-w-sm">
           <div
-            className={`rounded-3xl border px-4 py-4 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur ${
+            className={`rounded-3xl border px-4 py-4 shadow-[0_24px_60px_rgba(15,23,42,0.18)] ${
               geoToast.tone === "success"
                 ? "border-emerald-200 bg-emerald-50/95 text-emerald-950"
                 : "border-rose-200 bg-rose-50/95 text-rose-950"

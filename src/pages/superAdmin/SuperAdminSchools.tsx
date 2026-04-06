@@ -233,11 +233,11 @@ export const SuperAdminSchoolsPage = () => {
           description="Cut through the tenant list quickly with status, renewal, and lifecycle filters."
         />
 
-        <div className="superadmin-filter-grid">
+        <div className="dashboard-filter-grid">
           <Input label="Search" placeholder="Search school, email, admin, or plan" value={query} onChange={(event) => setQuery(event.target.value)} />
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="erp-select">
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="ui-select">
               <option value="all">All statuses</option>
               <option value="Trial">Trial</option>
               <option value="Active">Active</option>
@@ -247,7 +247,7 @@ export const SuperAdminSchoolsPage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Quick filter</span>
-            <select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)} className="erp-select">
+            <select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)} className="ui-select">
               <option value="all">All schools</option>
               <option value="renewal">Renewal due in 14 days</option>
               <option value="suspended">Suspended only</option>
@@ -255,7 +255,7 @@ export const SuperAdminSchoolsPage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Sort</span>
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="erp-select">
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="ui-select">
               <option value="newest">Newest</option>
               <option value="name">Name</option>
               <option value="expiry">Expiry date</option>
@@ -310,16 +310,16 @@ export const SuperAdminSchoolsPage = () => {
                   </div>
 
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <button type="button" onClick={() => navigate(`/super-admin/schools/${school.id}`)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                    <button type="button" onClick={() => navigate(`/super-admin/schools/${school.id}`)} className="page-action-button">
                       Open Profile
                     </button>
-                    <button type="button" onClick={() => navigate(`/super-admin/schools/${school.id}/edit`)} className="rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50">
+                    <button type="button" onClick={() => navigate(`/super-admin/schools/${school.id}/edit`)} className="page-action-button page-action-button-warning">
                       Edit
                     </button>
-                    <button type="button" onClick={() => void handleToggleSuspend(school)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                    <button type="button" onClick={() => void handleToggleSuspend(school)} className="page-action-button">
                       {school.subscriptionStatus === "Suspended" ? "Restore Access" : "Suspend Access"}
                     </button>
-                    <button type="button" onClick={() => void handleDelete(school)} className="rounded-xl border border-rose-200 bg-white px-3 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50">
+                    <button type="button" onClick={() => void handleDelete(school)} className="page-action-button page-action-button-danger">
                       Delete
                     </button>
                   </div>
@@ -335,7 +335,7 @@ export const SuperAdminSchoolsPage = () => {
           ) : null}
         </div>
 
-        <div className="superadmin-table-shell hidden md:block">
+        <div className="dashboard-table-shell hidden md:block">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
@@ -373,16 +373,16 @@ export const SuperAdminSchoolsPage = () => {
                     <td className="px-4 py-3 text-slate-600">{formatDate(school.expiryDate)}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" onClick={() => navigate(`/super-admin/schools/${school.id}`)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                        <button type="button" onClick={() => navigate(`/super-admin/schools/${school.id}`)} className="page-action-button text-xs">
                           Profile
                         </button>
-                        <button type="button" onClick={() => navigate(`/super-admin/schools/${school.id}/edit`)} className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50">
+                        <button type="button" onClick={() => navigate(`/super-admin/schools/${school.id}/edit`)} className="page-action-button page-action-button-warning text-xs">
                           Edit
                         </button>
-                        <button type="button" onClick={() => void handleToggleSuspend(school)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                        <button type="button" onClick={() => void handleToggleSuspend(school)} className="page-action-button text-xs">
                           {school.subscriptionStatus === "Suspended" ? "Restore" : "Suspend"}
                         </button>
-                        <button type="button" onClick={() => void handleDelete(school)} className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50">
+                        <button type="button" onClick={() => void handleDelete(school)} className="page-action-button page-action-button-danger text-xs">
                           Delete
                         </button>
                       </div>
@@ -413,7 +413,7 @@ export const SuperAdminSchoolsPage = () => {
               <Input label="Storage Limit (MB)" type="number" min="0" value={form.storageLimit} onChange={(event) => setForm((current) => ({ ...current, storageLimit: event.target.value }))} />
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-                <select value={form.subscriptionStatus} onChange={(event) => setForm((current) => ({ ...current, subscriptionStatus: event.target.value as SchoolUpdateValues["subscriptionStatus"] }))} className="erp-select">
+                <select value={form.subscriptionStatus} onChange={(event) => setForm((current) => ({ ...current, subscriptionStatus: event.target.value as SchoolUpdateValues["subscriptionStatus"] }))} className="ui-select">
                   <option value="Trial">Trial</option>
                   <option value="Active">Active</option>
                   <option value="Expired">Expired</option>

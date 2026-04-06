@@ -22,7 +22,7 @@ export const ModulePage = ({ eyebrow, title, description, metrics }: ModulePageP
 
     <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
       {metrics.map((metric) => (
-        <Card key={metric.label} className="erp-kpi-card">
+        <Card key={metric.label} className="metric-card">
           <p className="text-sm text-slate-500">{metric.label}</p>
           <h3 className="mt-3 text-3xl font-semibold text-slate-900">{metric.value}</h3>
         </Card>

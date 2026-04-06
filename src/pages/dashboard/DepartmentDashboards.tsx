@@ -31,7 +31,7 @@ const formatCurrency = (value: number) =>
 const MetricCards = ({ metrics }: { metrics: Metric[] }) => (
   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
     {metrics.map((metric) => (
-      <Card key={metric.label} className="erp-kpi-card">
+      <Card key={metric.label} className="metric-card">
         <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{metric.label}</p>
         <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{metric.value}</p>
         <p className="mt-2 text-sm leading-6 text-slate-500">{metric.detail}</p>

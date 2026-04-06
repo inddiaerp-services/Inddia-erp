@@ -46,6 +46,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
   const isSuperAdminArea = location.pathname.startsWith("/super-admin");
   const isPrincipalArea = location.pathname.startsWith("/principal");
   const isDashboard = isDashboardLikePath(location.pathname);
+  const isLandingPage = location.pathname === "/" || location.pathname === "/home";
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
   const [openNotifications, setOpenNotifications] = useState(false);
@@ -135,39 +136,37 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
 
   if (!isDashboard) {
     return (
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/80 backdrop-blur-xl">
+      <header className={isLandingPage ? "landing-navbar sticky top-0 z-30" : "sticky top-0 z-30 border-b border-slate-200 bg-white"}>
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <Link to="/home" className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-500 text-lg font-bold text-slate-950 shadow-lg shadow-cyan-500/20">
-              I
-            </div>
+            <div className="layout-brand-mark h-10 w-10 rounded-xl text-lg">I</div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-200">School OS</p>
-              <h1 className="text-lg font-semibold text-white">INDDIA ERP</h1>
+              <p className={isLandingPage ? "text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-200" : "text-[11px] font-semibold uppercase tracking-[0.34em] text-indigo-600"}>School OS</p>
+              <h1 className={isLandingPage ? "text-lg font-semibold text-white" : "text-lg font-semibold text-slate-950"}>INDDIA ERP</h1>
             </div>
           </Link>
 
-          <nav className="hidden items-center gap-6 text-sm font-medium text-slate-300 md:flex">
-            <a href="#features" className="transition hover:text-white">
+          <nav className={isLandingPage ? "hidden items-center gap-6 text-sm font-medium text-slate-300 md:flex" : "hidden items-center gap-6 text-sm font-medium text-slate-500 md:flex"}>
+            <a href="#features" className={isLandingPage ? "transition hover:text-white" : "transition hover:text-slate-950"}>
               Features
             </a>
-            <a href="#security" className="transition hover:text-white">
+            <a href="#security" className={isLandingPage ? "transition hover:text-white" : "transition hover:text-slate-950"}>
               Security
             </a>
-            <a href="#launch" className="transition hover:text-white">
+            <a href="#launch" className={isLandingPage ? "transition hover:text-white" : "transition hover:text-slate-950"}>
               Launch
             </a>
           </nav>
 
           <div className="flex items-center gap-3">
-            <LanguageSwitcher dark />
+            <LanguageSwitcher dark={isLandingPage} />
             {user ? (
               <Link to={getDefaultRouteForRole(user.role)}>
-                <Button className="rounded-full px-6">Open Dashboard</Button>
+                <Button className={isLandingPage ? "rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 px-6 text-white hover:from-blue-400 hover:to-cyan-300" : "rounded-full px-6"}>Open Dashboard</Button>
               </Link>
             ) : (
               <Link to="/login">
-                <Button className="rounded-full px-6">Login</Button>
+                <Button className={isLandingPage ? "rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 px-6 text-white hover:from-blue-400 hover:to-cyan-300" : "rounded-full px-6"}>Login</Button>
               </Link>
             )}
           </div>
@@ -178,10 +177,10 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
 
   if (isSuperAdminArea) {
     return (
-      <header className="sticky top-0 z-20 border-b border-transparent bg-transparent text-white">
-        <div className="mx-3 mt-3 flex min-h-[5.1rem] items-center justify-between gap-3 rounded-[1.75rem] border border-white/10 bg-[linear-gradient(135deg,rgba(2,6,23,0.96),rgba(12,74,110,0.92))] px-4 py-3 shadow-[0_18px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl md:mx-0 md:mt-0 md:min-h-20 md:rounded-none md:border-b md:border-x-0 md:bg-slate-950 md:px-6 xl:px-8">
+      <header className="layout-topbar sticky top-0 z-20">
+        <div className="mx-3 flex min-h-[5rem] items-center justify-between gap-3 px-4 py-3 md:mx-0 md:min-h-20 md:px-6 xl:px-8">
           <div className="flex min-w-0 items-center gap-3 md:gap-4">
-            <button type="button" onClick={onMenuClick} className="inline-flex h-11 w-11 items-center justify-center rounded-[1.15rem] border border-white/10 bg-white/10 text-white shadow-sm transition active:scale-[0.98] md:hidden" aria-label="Open sidebar">
+            <button type="button" onClick={onMenuClick} className="ui-button ui-button-outline h-11 w-11 rounded-xl p-0 text-slate-700 md:hidden" aria-label="Open sidebar">
               <span className="space-y-1.5">
                 <span className="block h-0.5 w-5 bg-current" />
                 <span className="block h-0.5 w-5 bg-current" />
@@ -189,22 +188,22 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
               </span>
             </button>
             <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-[0.24em] text-sky-200">Dashboard</p>
-              <h1 className="truncate text-lg font-semibold text-white md:text-xl">{pageTitle}</h1>
-              <p className="mt-0.5 truncate text-xs text-slate-100">{pageSubtitle}</p>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-indigo-600">Control center</p>
+              <h1 className="truncate text-lg font-semibold text-slate-950 md:text-xl">{pageTitle}</h1>
+              <p className="mt-0.5 truncate text-xs text-slate-500">{pageSubtitle}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <LanguageSwitcher dark />
-            <div className="hidden items-center gap-3 rounded-2xl border border-white/10 bg-white/10 px-3 py-2 sm:flex">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-sky-300 to-cyan-400 text-sm font-semibold text-slate-950">{initials}</div>
+            <LanguageSwitcher />
+            <div className="hidden items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 sm:flex">
+              <div className="layout-brand-mark h-11 w-11 rounded-full text-sm">{initials}</div>
               <div className="text-right">
-                <p className="text-sm font-semibold text-white">{user?.name ?? "ERP User"}</p>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-100">Platform Owner</p>
+                <p className="text-sm font-semibold text-slate-950">{user?.name ?? "ERP User"}</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Platform Owner</p>
               </div>
             </div>
-            <Button variant="secondary" onClick={handleLogout} className="inline-flex h-11 gap-2 rounded-[1.15rem] border border-white/10 bg-white/10 px-4 text-white shadow-sm hover:bg-white/15">
+            <Button variant="outline" onClick={handleLogout} className="inline-flex h-11 gap-2 px-4">
               <LogoutIcon />
               <span>Logout</span>
             </Button>
@@ -215,10 +214,10 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
   }
 
   return (
-    <header className="sticky top-0 z-20">
-      <div className="erp-topbar-panel mx-3 flex flex-col gap-4 rounded-[1.75rem] border border-slate-200/80 px-4 py-4 shadow-[0_18px_36px_rgba(15,23,42,0.05)] md:mx-4 md:mt-4 md:flex-row md:items-center md:justify-between md:px-6 xl:px-8">
+    <header className="layout-topbar sticky top-0 z-20">
+      <div className="mx-3 flex flex-col gap-4 px-4 py-4 md:mx-4 md:flex-row md:items-center md:justify-between md:px-6 xl:px-8">
         <div className="flex min-w-0 items-center gap-3">
-          <button type="button" onClick={onMenuClick} className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 md:hidden" aria-label="Open sidebar">
+          <button type="button" onClick={onMenuClick} className="ui-button ui-button-outline h-11 w-11 rounded-xl p-0 md:hidden" aria-label="Open sidebar">
             <span className="space-y-1.5">
               <span className="block h-0.5 w-5 bg-current" />
               <span className="block h-0.5 w-5 bg-current" />
@@ -227,7 +226,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
           </button>
 
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-blue-700">Workspace</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-indigo-600">Workspace</p>
             <h1 className="truncate text-lg font-semibold text-slate-950 md:text-2xl">{pageTitle}</h1>
             <p className="mt-1 truncate text-sm text-slate-500">
               Welcome back, {firstName}. {pageSubtitle}
@@ -236,7 +235,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="hidden min-w-[280px] items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 lg:flex">
+          <div className="hidden min-w-[280px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 lg:flex">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 text-slate-400">
               <circle cx="11" cy="11" r="7" />
               <path d="m20 20-3.5-3.5" />
@@ -250,7 +249,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
             <button
               type="button"
               onClick={() => setOpenNotifications((current) => !current)}
-              className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
+              className="ui-button ui-button-outline relative h-11 w-11 rounded-xl p-0"
               aria-label="Open notifications"
             >
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
@@ -265,7 +264,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
             </button>
 
             {openNotifications ? (
-              <div className="absolute right-0 top-14 z-30 w-[min(92vw,24rem)] rounded-[1.75rem] border border-slate-200 bg-white p-3 shadow-2xl">
+              <div className="ui-card absolute right-0 top-14 z-30 w-[min(92vw,24rem)] p-3 shadow-2xl">
                 <div className="flex items-center justify-between gap-3 px-2 pb-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Notifications</p>
@@ -278,7 +277,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
 
                 <div className="max-h-[24rem] space-y-2 overflow-y-auto">
                   {notifications.length === 0 ? (
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">No notifications right now.</div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">No notifications right now.</div>
                   ) : (
                     notifications.map((notification) => (
                       <button
@@ -286,7 +285,7 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
                         type="button"
                         onClick={() => void openNotification(notification)}
                         className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                          notification.isRead ? "border-slate-200 bg-white hover:bg-slate-50" : "border-blue-200 bg-blue-50/70 hover:bg-blue-50"
+                          notification.isRead ? "border-slate-200 bg-white hover:bg-slate-50" : "border-indigo-200 bg-indigo-50 hover:bg-indigo-100"
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -306,8 +305,8 @@ export const Navbar = ({ onMenuClick }: NavbarProps) => {
             ) : null}
           </div>
 
-          <div className="hidden items-center gap-3 rounded-[1.25rem] border border-slate-200 bg-white px-3 py-2 sm:flex">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">{initials}</div>
+          <div className="hidden items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 sm:flex">
+            <div className="layout-brand-mark h-11 w-11 rounded-full text-sm">{initials}</div>
             <div>
               <p className="text-sm font-semibold text-slate-900">{user?.name ?? "ERP User"}</p>
               <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{user?.role ? roleLabels[user.role] : "User"}</p>

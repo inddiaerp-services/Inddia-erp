@@ -185,11 +185,11 @@ export const SuperAdminStoragePage = () => {
           description="Filter by plan, status, and usage pressure, then adjust limits right from the monitor."
         />
 
-        <div className="superadmin-filter-grid">
+        <div className="dashboard-filter-grid">
           <Input label="Search" placeholder="Search school or plan" value={query} onChange={(event) => setQuery(event.target.value)} />
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Usage filter</span>
-            <select value={usageFilter} onChange={(event) => setUsageFilter(event.target.value)} className="erp-select">
+            <select value={usageFilter} onChange={(event) => setUsageFilter(event.target.value)} className="ui-select">
               <option value="all">All schools</option>
               <option value="near-limit">Near limit</option>
               <option value="no-limit">No configured limit</option>
@@ -197,7 +197,7 @@ export const SuperAdminStoragePage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="erp-select">
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="ui-select">
               <option value="all">All statuses</option>
               <option value="Trial">Trial</option>
               <option value="Active">Active</option>
@@ -207,7 +207,7 @@ export const SuperAdminStoragePage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Sort</span>
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="erp-select">
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="ui-select">
               <option value="usage">Highest usage</option>
               <option value="files">Most files</option>
               <option value="latest-billing">Latest billing</option>
@@ -261,15 +261,15 @@ export const SuperAdminStoragePage = () => {
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <button type="button" onClick={() => openView(row)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">View</button>
-                  <button type="button" onClick={() => navigate(`/super-admin/storage/${row.schoolId}/edit`)} className="rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50">Edit Limit</button>
+                  <button type="button" onClick={() => openView(row)} className="page-action-button">View</button>
+                  <button type="button" onClick={() => navigate(`/super-admin/storage/${row.schoolId}/edit`)} className="page-action-button page-action-button-warning">Edit Limit</button>
                 </div>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="superadmin-table-shell hidden md:block">
+        <div className="dashboard-table-shell hidden md:block">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
@@ -314,8 +314,8 @@ export const SuperAdminStoragePage = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => openView(row)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">View</button>
-                      <button type="button" onClick={() => navigate(`/super-admin/storage/${row.schoolId}/edit`)} className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50">Edit</button>
+                      <button type="button" onClick={() => openView(row)} className="page-action-button text-xs">View</button>
+                      <button type="button" onClick={() => navigate(`/super-admin/storage/${row.schoolId}/edit`)} className="page-action-button page-action-button-warning text-xs">Edit</button>
                     </div>
                   </td>
                 </tr>

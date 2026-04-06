@@ -188,16 +188,59 @@ const fetchAuthContextFromServer = async (accessToken: string) => {
   return result.data;
 };
 
+const isFirebaseQuotaError = (error: unknown) => {
+  const message = String((error as { message?: string } | null)?.message ?? error ?? "").toLowerCase();
+  const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
+  return (
+    message.includes("resource_exhausted") ||
+    message.includes("quota exceeded") ||
+    message.includes("quota-exceeded") ||
+    code.includes("resource-exhausted")
+  );
+};
+
 const isFirebasePermissionError = (error: unknown) => {
   const message = String((error as { message?: string } | null)?.message ?? error ?? "").toLowerCase();
   const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
   return (
     message.includes("missing or insufficient permissions") ||
     message.includes("permission-denied") ||
-    code.includes("permission-denied") ||
-    message.includes("resource_exhausted") ||
-    message.includes("quota exceeded")
+    code.includes("permission-denied")
   );
+};
+
+const isFirebaseSetupError = (error: unknown) => {
+  const message = String((error as { message?: string } | null)?.message ?? error ?? "").toLowerCase();
+  const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
+  return (
+    message.includes("api has not been used") ||
+    message.includes("api is disabled") ||
+    message.includes("firestore has not been used") ||
+    message.includes("failed-precondition") ||
+    code.includes("failed-precondition")
+  );
+};
+
+const toFirebaseProjectError = (error: unknown, context: string) => {
+  if (isFirebaseQuotaError(error)) {
+    return new Error(
+      `${context} failed because the new Firebase project is rejecting requests. Restart the dev server after changing .env/.env.server, then make sure Firebase Authentication and Firestore are enabled for this project.`,
+    );
+  }
+
+  if (isFirebasePermissionError(error)) {
+    return new Error(
+      `${context} failed because Firestore access is blocked for the new Firebase project. Check your Firestore rules and confirm the local admin server was restarted after the Firebase change.`,
+    );
+  }
+
+  if (isFirebaseSetupError(error)) {
+    return new Error(
+      `${context} failed because the new Firebase project is not fully enabled yet. Turn on Firebase Authentication and Cloud Firestore in the Firebase console, then restart the local server.`,
+    );
+  }
+
+  return error instanceof Error ? error : new Error(String(error ?? `${context} failed.`));
 };
 
 const mapFirebaseSession = (user: FirebaseUser, tokenResult: Awaited<ReturnType<typeof getIdTokenResult>>): AppSession => {
@@ -267,7 +310,7 @@ const fetchSchoolProfile = async (schoolId: string | null | undefined): Promise<
         ...(snapshot.data as Omit<SchoolRow, "id">),
       });
     } catch (error) {
-      if (isFirebasePermissionError(error)) {
+      if (isFirebasePermissionError(error) || isFirebaseQuotaError(error) || isFirebaseSetupError(error)) {
         return createSchoolFallback(cacheKey);
       }
       throw error;
@@ -307,10 +350,7 @@ const fetchUserProfile = async (userId: string): Promise<AuthUser> => {
         ...(snapshot.data as Omit<UsersRow, "id">),
       });
     } catch (error) {
-      if (isFirebasePermissionError(error)) {
-        throw new Error("Access denied to user profile. Contact administrator.");
-      }
-      throw error;
+      throw toFirebaseProjectError(error, "Loading the user profile");
     }
   })().catch((error) => {
     userProfileCache.delete(cacheKey);
@@ -331,23 +371,27 @@ const fetchUserProfileByEmail = async (email: string): Promise<AuthUser> => {
   }
 
   const request = (async () => {
-    const rows = (await queryFirestoreCollectionCached({
-      collectionName: "users",
-      filters: [{ field: "email", value: cacheKey }],
-      limitCount: 2,
-      cacheKey: `auth:user-by-email:${cacheKey}`,
-    })).map((item) => ({
-      id: item.id,
-      ...(item.data as Omit<UsersRow, "id">),
-    }));
+    try {
+      const rows = (await queryFirestoreCollectionCached({
+        collectionName: "users",
+        filters: [{ field: "email", value: cacheKey }],
+        limitCount: 2,
+        cacheKey: `auth:user-by-email:${cacheKey}`,
+      })).map((item) => ({
+        id: item.id,
+        ...(item.data as Omit<UsersRow, "id">),
+      }));
 
-    return mapUser(
-      ensureSingleRow(
-        rows,
-        "Unable to load the user profile.",
-        "Multiple user profiles were found for this email. Check the users collection.",
-      ),
-    );
+      return mapUser(
+        ensureSingleRow(
+          rows,
+          "Unable to load the user profile.",
+          "Multiple user profiles were found for this email. Check the users collection.",
+        ),
+      );
+    } catch (error) {
+      throw toFirebaseProjectError(error, "Resolving the login profile");
+    }
   })().catch((error) => {
     userProfileByEmailCache.delete(cacheKey);
     throw error;
@@ -455,9 +499,13 @@ const ensureFirebaseReady = async () => {
 };
 
 const signInAndResolve = async (email: string, password: string) => {
-  const auth = await ensureFirebaseReady();
-  const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-  return resolveAuthFromUser(credential.user);
+  try {
+    const auth = await ensureFirebaseReady();
+    const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+    return resolveAuthFromUser(credential.user);
+  } catch (error) {
+    throw toFirebaseProjectError(error, "Signing in");
+  }
 };
 
 export const loginStaff = async (email: string, password: string) => {

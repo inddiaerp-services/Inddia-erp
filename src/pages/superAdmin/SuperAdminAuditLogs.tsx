@@ -101,7 +101,7 @@ export const SuperAdminAuditLogsPage = () => {
           <Input label="Search" placeholder="Search school, actor, record, or module" value={query} onChange={(event) => setQuery(event.target.value)} />
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Action</span>
-            <select value={actionFilter} onChange={(event) => setActionFilter(event.target.value)} className="erp-select">
+            <select value={actionFilter} onChange={(event) => setActionFilter(event.target.value)} className="ui-select">
               <option value="all">All actions</option>
               <option value="CREATE">Create</option>
               <option value="UPDATE">Update</option>
@@ -110,7 +110,7 @@ export const SuperAdminAuditLogsPage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Module</span>
-            <select value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)} className="erp-select">
+            <select value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)} className="ui-select">
               <option value="all">All modules</option>
               {moduleOptions.map((module) => (
                 <option key={module} value={module}>
@@ -137,7 +137,7 @@ export const SuperAdminAuditLogsPage = () => {
           ))}
         </div>
 
-        <div className="superadmin-table-shell hidden md:block">
+        <div className="dashboard-table-shell hidden md:block">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>

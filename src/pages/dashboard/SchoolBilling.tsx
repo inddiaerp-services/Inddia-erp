@@ -489,7 +489,7 @@ export const SchoolPlanUpgradePage = () => {
           <Input label="Requested Plan" value={form.requestedPlan} onChange={(event) => setForm((current) => ({ ...current, requestedPlan: event.target.value }))} required />
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Billing Cycle</span>
-            <select className="erp-select" value={form.requestedBillingCycle} onChange={(event) => setForm((current) => ({ ...current, requestedBillingCycle: event.target.value as PlanBillingCycle }))}>
+            <select className="ui-select" value={form.requestedBillingCycle} onChange={(event) => setForm((current) => ({ ...current, requestedBillingCycle: event.target.value as PlanBillingCycle }))}>
               <option value="Monthly">Monthly</option>
               <option value="Quarterly">Quarterly</option>
               <option value="Yearly">Yearly</option>

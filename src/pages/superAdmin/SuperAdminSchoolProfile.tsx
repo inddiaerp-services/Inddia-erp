@@ -332,7 +332,7 @@ export const SuperAdminSchoolProfilePage = () => {
             <Input label="Storage Limit (MB)" type="number" min="0" value={form.storageLimit} onChange={(event) => setForm((current) => ({ ...current, storageLimit: event.target.value }))} />
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-              <select value={form.subscriptionStatus} onChange={(event) => setForm((current) => ({ ...current, subscriptionStatus: event.target.value as SchoolUpdateValues["subscriptionStatus"] }))} className="erp-select">
+              <select value={form.subscriptionStatus} onChange={(event) => setForm((current) => ({ ...current, subscriptionStatus: event.target.value as SchoolUpdateValues["subscriptionStatus"] }))} className="ui-select">
                 <option value="Trial">Trial</option>
                 <option value="Active">Active</option>
                 <option value="Expired">Expired</option>

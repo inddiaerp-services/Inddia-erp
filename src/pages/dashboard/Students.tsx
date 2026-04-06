@@ -571,7 +571,7 @@ export const StudentsPage = () => {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {studentStats.map((stat) => (
-          <Card key={stat.label} className="erp-kpi-card">
+          <Card key={stat.label} className="metric-card">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{stat.label}</p>
             <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{stat.value}</p>
             <p className="mt-2 text-sm text-slate-500">{stat.detail}</p>
@@ -595,7 +595,7 @@ export const StudentsPage = () => {
             <select
               value={classFilter}
               onChange={(event) => setClassFilter(event.target.value)}
-              className="erp-select"
+              className="ui-select"
             >
               <option value="">All</option>
               {classOptions.map((className) => (
@@ -610,7 +610,7 @@ export const StudentsPage = () => {
             <select
               value={sectionFilter}
               onChange={(event) => setSectionFilter(event.target.value)}
-              className="erp-select"
+              className="ui-select"
             >
               <option value="">All</option>
               {sectionOptions.map((section) => (
@@ -712,7 +712,7 @@ export const StudentsPage = () => {
                   value={form.className}
                   onChange={(event) => handleChange("className", event.target.value)}
                   required
-                  className="erp-select"
+                  className="ui-select"
                 >
                   <option value="">Select class</option>
                   {classOptions.map((className) => (
@@ -729,7 +729,7 @@ export const StudentsPage = () => {
                   onChange={(event) => handleChange("section", event.target.value)}
                   required
                   disabled={!form.className}
-                  className="erp-select disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ui-select disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <option value="">{form.className ? "Select section" : "Select class first"}</option>
                   {availableSections.map((section) => (
@@ -819,14 +819,14 @@ export const StudentsPage = () => {
               <Input label="Student Birth ID / NIC" value={form.birthId} onChange={(event) => handleChange("birthId", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Orphan Student</span>
-                <select value={form.isOrphan ? "yes" : "no"} onChange={(event) => handleChange("isOrphan", event.target.value === "yes")} className="erp-select">
+                <select value={form.isOrphan ? "yes" : "no"} onChange={(event) => handleChange("isOrphan", event.target.value === "yes")} className="ui-select">
                   <option value="no">No</option>
                   <option value="yes">Yes</option>
                 </select>
               </label>
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Gender</span>
-                <select value={form.gender} onChange={(event) => handleChange("gender", event.target.value)} className="erp-select">
+                <select value={form.gender} onChange={(event) => handleChange("gender", event.target.value)} className="ui-select">
                   <option value="">Select gender</option>
                   {genderOptions.map((option) => (
                     <option key={option} value={option}>
@@ -838,7 +838,7 @@ export const StudentsPage = () => {
               <Input label="Cast / Caste" value={form.caste} onChange={(event) => handleChange("caste", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">OSC</span>
-                <select value={form.osc} onChange={(event) => handleChange("osc", event.target.value as StudentFormValues["osc"])} className="erp-select">
+                <select value={form.osc} onChange={(event) => handleChange("osc", event.target.value as StudentFormValues["osc"])} className="ui-select">
                   <option value="">Select OSC</option>
                   <option value="A">A</option>
                   <option value="B">B</option>
@@ -849,7 +849,7 @@ export const StudentsPage = () => {
               <Input label="Previous School" value={form.previousSchool} onChange={(event) => handleChange("previousSchool", event.target.value)} className="border-slate-200 bg-white text-slate-900" />
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Region</span>
-                <select value={form.region} onChange={(event) => handleChange("region", event.target.value)} className="erp-select">
+                <select value={form.region} onChange={(event) => handleChange("region", event.target.value)} className="ui-select">
                   <option value="">Select region</option>
                   {regionOptions.map((option) => (
                     <option key={option} value={option}>
@@ -860,7 +860,7 @@ export const StudentsPage = () => {
               </label>
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Blood Group</span>
-                <select value={form.bloodGroup} onChange={(event) => handleChange("bloodGroup", event.target.value)} className="erp-select">
+                <select value={form.bloodGroup} onChange={(event) => handleChange("bloodGroup", event.target.value)} className="ui-select">
                   <option value="">Select blood group</option>
                   {bloodGroupOptions.map((option) => (
                     <option key={option} value={option}>

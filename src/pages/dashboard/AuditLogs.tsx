@@ -92,7 +92,7 @@ export const AuditLogsPage = () => {
           />
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Action</span>
-            <select value={actionFilter} onChange={(event) => setActionFilter(event.target.value)} className="erp-select">
+            <select value={actionFilter} onChange={(event) => setActionFilter(event.target.value)} className="ui-select">
               <option value="all">All actions</option>
               <option value="CREATE">Create</option>
               <option value="UPDATE">Update</option>
@@ -101,7 +101,7 @@ export const AuditLogsPage = () => {
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Module</span>
-            <select value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)} className="erp-select">
+            <select value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)} className="ui-select">
               <option value="all">All modules</option>
               {moduleOptions.map((module) => (
                 <option key={module} value={module}>

@@ -47,8 +47,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     ref,
   ) => {
     const isCalendarInput = props.type === "date" || props.type === "month";
-    const isSuperAdminArea =
-      typeof window !== "undefined" && window.location.pathname.startsWith("/super-admin");
     const constraintSource = [label, props.name, props.id, props.placeholder]
       .filter(Boolean)
       .join(" ")
@@ -110,10 +108,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             className={cn(
-              isSuperAdminArea
-                ? "w-full min-h-12 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-200/70"
-                : "w-full min-h-12 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 shadow-[inset_0_1px_2px_rgba(15,23,42,0.02)] focus:border-blue-500 focus:ring-4 focus:ring-blue-100",
-              isCalendarInput && "erp-calendar-input pr-12",
+              "ui-input text-sm",
+              isCalendarInput && "ui-calendar-input pr-12",
               variant === "dark"
                 ? "border-white/10 bg-slate-900/70 text-white placeholder:text-slate-500"
                 : "",

@@ -97,7 +97,7 @@ export const SuperAdminPaymentEditPage = () => {
                   <Input label="Payment Date" type="date" value={form.paymentDate} onChange={(event) => setForm((current) => ({ ...current, paymentDate: event.target.value }))} />
                   <label className="block space-y-2">
                     <span className="text-sm font-medium text-slate-700">Status</span>
-                    <select className="erp-select" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as PaymentUpdateValues["status"] }))}>
+                    <select className="ui-select" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as PaymentUpdateValues["status"] }))}>
                       <option value="Success">Success</option>
                       <option value="Failed">Failed</option>
                     </select>
@@ -108,7 +108,7 @@ export const SuperAdminPaymentEditPage = () => {
               {error ? <p className="text-sm text-rose-600">{error}</p> : null}
               {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
 
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-between">
+              <div className="page-form-footer sm:flex-row sm:justify-between">
                 <Link to="/super-admin/payments" className="w-full sm:w-auto">
                   <Button variant="outline" className="w-full sm:w-auto">Cancel</Button>
                 </Link>
@@ -123,11 +123,11 @@ export const SuperAdminPaymentEditPage = () => {
         <SuperAdminPanel>
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">Payment Context</p>
           <div className="mt-4 space-y-3 text-sm">
-            <div className="rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="page-detail-card">
               <p className="text-slate-500">School</p>
               <p className="mt-1 font-medium text-slate-900">{school?.name ?? "-"}</p>
             </div>
-            <div className="rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="page-detail-card">
               <p className="text-slate-500">Payment ID</p>
               <p className="mt-1 break-all font-medium text-slate-900">{payment?.id ?? "-"}</p>
             </div>

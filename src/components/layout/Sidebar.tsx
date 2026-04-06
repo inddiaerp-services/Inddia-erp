@@ -209,30 +209,26 @@ export const Sidebar = ({ open, onClose }: SidebarProps) => {
     return (
       <>
         <div
-          className={`fixed inset-0 z-30 bg-slate-950/50 backdrop-blur-sm transition md:hidden ${open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+          className={`fixed inset-0 z-30 bg-slate-950/60 transition md:hidden ${open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
           onClick={onClose}
         />
         <aside
-          className={`fixed bottom-3 left-3 top-3 z-40 flex w-[calc(100vw-1.5rem)] max-w-[320px] flex-col rounded-[2rem] border shadow-xl backdrop-blur transition-transform duration-300 md:bottom-0 md:left-0 md:top-0 md:h-screen md:w-[296px] md:max-w-none md:rounded-none md:border-r md:translate-x-0 ${
-            "border-white/10 bg-[linear-gradient(180deg,#020617_0%,#0f172a_58%,#0b2942_100%)] text-white shadow-2xl"
-          } ${
+          className={`layout-sidebar fixed bottom-3 left-3 top-3 z-40 flex w-[calc(100vw-1.5rem)] max-w-[320px] flex-col rounded-[1.25rem] border transition-transform duration-300 md:bottom-0 md:left-0 md:top-0 md:h-screen md:w-[304px] md:max-w-none md:rounded-none md:border-r md:translate-x-0 ${
             open ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <div
-            className="border-b border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.14),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] px-4 py-5 sm:px-5 sm:py-6"
-          >
+          <div className="layout-sidebar-brand px-4 py-5 sm:px-5 sm:py-6">
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-300 to-cyan-400 text-lg font-bold text-slate-950 shadow-lg shadow-sky-500/25">I</div>
+              <div className="layout-brand-mark">I</div>
               <div className="min-w-0">
-                <p className="text-xs uppercase tracking-[0.28em] text-sky-200">INDDIA ERP</p>
-                <h2 className="truncate text-lg font-semibold text-white">{roleLabel} Workspace</h2>
+                <p className="text-xs uppercase tracking-[0.28em] text-cyan-300">INDDIA ERP</p>
+                <h2 className="truncate text-lg font-semibold text-slate-50">{roleLabel} Workspace</h2>
               </div>
             </div>
-            <div className="mt-5 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.22em] text-slate-200">Signed in as</p>
-              <p className="mt-2 truncate text-sm font-semibold text-white">{user?.name ?? "ERP User"}</p>
-              <p className="mt-2 text-xs leading-5 text-slate-100">
+            <div className="layout-sidebar-profile mt-5 rounded-2xl px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.22em] text-slate-300">Signed in as</p>
+              <p className="mt-2 truncate text-sm font-semibold text-slate-50">{user?.name ?? "ERP User"}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-300">
                 Control tenant growth, billing, storage, and platform governance from one executive workspace.
               </p>
             </div>
@@ -247,7 +243,6 @@ export const Sidebar = ({ open, onClose }: SidebarProps) => {
                   path={item.path}
                   description={item.description}
                   onClick={onClose}
-                  variant="superadmin"
                 />
               ))}
             </div>
@@ -260,23 +255,23 @@ export const Sidebar = ({ open, onClose }: SidebarProps) => {
   return (
     <>
       <div
-        className={`fixed inset-0 z-30 bg-slate-950/35 backdrop-blur-sm transition md:hidden ${open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+        className={`fixed inset-0 z-30 bg-slate-950/40 transition md:hidden ${open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
         onClick={onClose}
       />
 
       <aside
-        className={`erp-sidebar-panel fixed bottom-3 left-3 top-3 z-40 flex w-[calc(100vw-1.5rem)] max-w-[324px] flex-col rounded-[2rem] border border-slate-200/80 text-slate-900 transition-transform duration-300 md:bottom-4 md:left-4 md:top-4 md:h-[calc(100vh-2rem)] md:w-[288px] md:max-w-none md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
+        className={`layout-sidebar fixed bottom-3 left-3 top-3 z-40 flex w-[calc(100vw-1.5rem)] max-w-[324px] flex-col rounded-[1.25rem] border text-slate-900 transition-transform duration-300 md:bottom-4 md:left-4 md:top-4 md:h-[calc(100vh-2rem)] md:w-[288px] md:max-w-none md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
       >
-        <div className="border-b border-slate-200/80 px-5 py-5">
+        <div className="layout-sidebar-brand px-5 py-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-lg font-bold text-white shadow-[0_14px_30px_rgba(37,99,235,0.24)]">I</div>
+            <div className="layout-brand-mark">I</div>
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-blue-700">School OS</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-indigo-600">School OS</p>
               <h2 className="truncate text-lg font-semibold text-slate-950">{school?.name ?? "INDDIA ERP"}</h2>
             </div>
           </div>
 
-          <div className="mt-5 rounded-[1.5rem] border border-slate-200/80 bg-white/90 p-4">
+          <div className="layout-sidebar-profile mt-5 rounded-[1rem] p-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Workspace</p>
             <p className="mt-2 text-sm font-semibold text-slate-900">{roleLabel}</p>
             <p className="mt-1 text-sm text-slate-500">{user?.name ?? "ERP User"}</p>
@@ -286,7 +281,7 @@ export const Sidebar = ({ open, onClose }: SidebarProps) => {
         <div className="flex-1 space-y-6 overflow-y-auto px-4 py-5">
           {groupedItems.map((section) => (
             <div key={section.title}>
-              <p className="mb-3 px-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+              <p className="layout-section-label mb-3 px-2 text-[11px] font-semibold uppercase tracking-[0.24em]">
                 {section.title}
               </p>
               <div className="space-y-2">

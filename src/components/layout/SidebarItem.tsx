@@ -7,7 +7,6 @@ type SidebarItemProps = {
   path: string;
   description?: string;
   onClick?: () => void;
-  variant?: "default" | "superadmin";
 };
 
 const iconProps = {
@@ -219,21 +218,14 @@ export const SidebarItem = ({
   path,
   description,
   onClick,
-  variant = "default",
 }: SidebarItemProps) => (
   <NavLink
     to={path}
     onClick={onClick}
     className={({ isActive }) =>
       cn(
-        "group flex items-start gap-3 rounded-2xl border px-4 py-3 transition duration-200",
-        variant === "superadmin"
-          ? isActive
-            ? "border-sky-300/30 bg-sky-400/10 shadow-sm"
-            : "border-transparent bg-transparent hover:border-white/12 hover:bg-white/5"
-          : isActive
-            ? "border-blue-200 bg-blue-50 shadow-[0_8px_24px_rgba(37,99,235,0.08)]"
-            : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white/90",
+        "layout-nav-item group relative flex items-start gap-3 rounded-xl px-4 py-3 transition duration-200",
+        isActive && "layout-nav-item-active",
       )
     }
   >
@@ -241,22 +233,22 @@ export const SidebarItem = ({
       <>
         <span
           className={cn(
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl transition",
-            variant === "superadmin"
-              ? isActive
-                ? "bg-gradient-to-br from-sky-400 to-cyan-300 text-slate-950 shadow-lg shadow-sky-500/20"
-                : "bg-white/10 text-slate-100 group-hover:bg-white/15 group-hover:text-white"
-              : isActive
-                ? "bg-blue-600 text-white"
-                : "bg-slate-100 text-slate-600 group-hover:bg-blue-50 group-hover:text-blue-700",
+            "layout-nav-indicator absolute bottom-3 left-0 top-3 w-1 rounded-full opacity-0 transition",
+            isActive && "opacity-100",
+          )}
+        />
+        <span
+          className={cn(
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-current/10 bg-current/5 text-inherit transition",
+            !isActive && "opacity-90",
           )}
         >
           {iconMap[icon] ?? fallbackIcon}
         </span>
         <span className="min-w-0">
-          <span className={cn("block text-sm font-semibold", variant === "superadmin" ? "text-white" : "text-slate-900")}>{label}</span>
+          <span className="block text-sm font-semibold text-inherit">{label}</span>
           {description ? (
-            <span className={cn("mt-1 block text-xs leading-5", variant === "superadmin" ? "text-slate-200" : "text-slate-500")}>{description}</span>
+            <span className="mt-1 block text-xs leading-5 text-inherit/75">{description}</span>
           ) : null}
         </span>
       </>

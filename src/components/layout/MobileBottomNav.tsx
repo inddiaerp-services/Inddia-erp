@@ -76,8 +76,8 @@ const getItemsForRole = (role: string | null): MobileNavItem[] => {
       { label: "Home", path: "/super-admin/dashboard", icon: homeIcon },
       { label: "Schools", path: "/super-admin/schools", icon: stackIcon },
       { label: "Billing", path: "/super-admin/billing", icon: currencyIcon },
+      { label: "Payments", path: "/super-admin/payments", icon: bellIcon },
       { label: "Storage", path: "/super-admin/storage", icon: chartIcon },
-      { label: "Audit", path: "/super-admin/audit-logs", icon: userIcon },
     ];
   }
 
@@ -141,15 +141,17 @@ export const MobileBottomNav = () => {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 md:hidden">
-      <div className="mobile-glass-panel mx-auto grid max-w-xl grid-cols-5 rounded-[1.6rem] border border-slate-200/80 px-2 py-2 shadow-[0_22px_50px_rgba(15,23,42,0.12)]">
+      <div className="mobile-bottom-nav mx-auto grid max-w-xl grid-cols-5 rounded-[1rem] border px-2 py-2">
         {items.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}
             className={({ isActive }) =>
               cn(
-                "flex min-h-[4rem] flex-col items-center justify-center gap-1 rounded-[1.2rem] px-1 text-[11px] font-semibold transition active:scale-[0.98]",
-                isActive ? "bg-blue-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100/80 hover:text-slate-900",
+                "flex min-h-[4rem] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[11px] font-semibold transition active:scale-[0.98]",
+                isActive
+                  ? "bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]"
+                  : "text-[var(--text-muted)] hover:bg-[var(--nav-hover)] hover:text-[var(--text)]",
               )
             }
           >

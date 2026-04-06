@@ -84,14 +84,14 @@ const upcomingEventsForRole = (role: string | null) => {
 };
 
 const StatCard = ({ stat, index, onOpen }: { stat: RoleStat; index: number; onOpen: () => void }) => (
-  <button type="button" onClick={onOpen} className="erp-kpi-card text-left">
-    <div className="flex items-start justify-between gap-3">
-      <div>
+  <button type="button" onClick={onOpen} className="metric-card text-left">
+    <div className="flex h-full items-start justify-between gap-3">
+      <div className="min-w-0 flex-1">
         <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{stat.label}</p>
         <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{stat.value}</p>
         <p className="mt-2 text-sm leading-6 text-slate-500">{stat.detail}</p>
       </div>
-      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
         {index % 4 === 0 ? "A" : index % 4 === 1 ? "B" : index % 4 === 2 ? "C" : "D"}
       </div>
     </div>
@@ -367,7 +367,7 @@ export const DashboardHome = () => {
           stat ? (
             <StatCard key={stat.label} stat={stat} index={index} onOpen={() => navigate(stat.path)} />
           ) : (
-            <Card key={index} className="erp-kpi-card">
+            <Card key={index} className="metric-card">
               <div className="h-4 w-24 animate-pulse rounded-full bg-slate-200" />
               <div className="mt-4 h-10 w-20 animate-pulse rounded-2xl bg-slate-200" />
               <div className="mt-4 h-4 w-40 animate-pulse rounded-full bg-slate-100" />

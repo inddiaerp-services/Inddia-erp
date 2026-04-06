@@ -668,6 +668,40 @@ const isFirebasePermissionError = (error: unknown) => {
   );
 };
 
+const isFirebaseSetupError = (error: unknown) => {
+  const message = String((error as { message?: string } | null)?.message ?? error ?? "").toLowerCase();
+  const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
+  return (
+    message.includes("api has not been used") ||
+    message.includes("api is disabled") ||
+    message.includes("firestore has not been used") ||
+    message.includes("failed-precondition") ||
+    code.includes("failed-precondition")
+  );
+};
+
+const toFirebaseProjectError = (error: unknown, context: string) => {
+  if (isFirebaseQuotaError(error)) {
+    return new Error(
+      `${context} failed because the new Firebase project is rejecting requests. Restart the dev server after changing .env/.env.server, then make sure Firebase Authentication and Cloud Firestore are enabled.`,
+    );
+  }
+
+  if (isFirebasePermissionError(error)) {
+    return new Error(
+      `${context} failed because Firestore access is blocked for the new Firebase project. Check your Firestore rules and restart the local admin server so it uses the new Firebase credentials.`,
+    );
+  }
+
+  if (isFirebaseSetupError(error)) {
+    return new Error(
+      `${context} failed because the new Firebase project is not fully enabled yet. Turn on Cloud Firestore and Authentication in Firebase console, then restart the local server.`,
+    );
+  }
+
+  return error instanceof Error ? error : new Error(String(error ?? `${context} failed.`));
+};
+
 const listFirestoreCollectionThroughServer = async (collectionName: string, schoolId: string) => {
   return invokeServerAction<Array<{ id: string; data: Record<string, unknown> }>>("list_firestore_collection", {
     collectionName,
@@ -837,8 +871,8 @@ const getFirestoreSchoolScopedCount = async (collectionName: string, schoolId: s
       throw error;
     }
 
-    // Fallback to server or estimate
-    return 0;
+    const docs = await listFirestoreCollectionThroughServer(collectionName, schoolId);
+    return docs.length;
   }
 };
 
@@ -1215,7 +1249,7 @@ const invokeServerAction = async <T>(action: string, payload: Record<string, unk
   }
 
   if (!response.ok || result.error) {
-    throw new Error(result.error ?? `Server action failed (${response.status} ${response.statusText}).`);
+    throw toFirebaseProjectError(result.error ?? `Server action failed (${response.status} ${response.statusText}).`, "Loading dashboard data");
   }
 
   return result.data as T;
